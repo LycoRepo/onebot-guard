@@ -1,0 +1,10 @@
+.git
+.github
+handoff
+tests
+node_modules
+coverage
+*.log
+.env
+.env.*
+config/gateway.yaml

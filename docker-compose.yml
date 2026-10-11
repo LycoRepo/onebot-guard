@@ -1,0 +1,33 @@
+# OneBot 策略网关 —— 本地部署示例
+#
+# 安全默认：所有端口只绑回环地址（127.0.0.1）。
+# 跨机访问一律经加密隧道或受限私有网络，不在这里开公网。
+# 凭据只从环境变量注入，配置文件里不出现明文 token。
+
+services:
+  gateway:
+    build: .
+    image: onebot-policy-gateway:dev
+    container_name: onebot-policy-gateway
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:3010:3010"   # 下游应用接入（inbound）
+      - "127.0.0.1:3011:3011"   # 只读 /health、/stats
+
+    volumes:
+      - ./config/gateway.yaml:/app/config/gateway.yaml:ro
+
+    environment:
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:?GATEWAY_TOKEN is required}
+      UPSTREAM_TOKEN: ${UPSTREAM_TOKEN:?UPSTREAM_TOKEN is required}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+    # 有界内存；上限被触发时的行为由配置里的 backpressure 决定
+    mem_limit: 256m
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,140 @@
+# OneBot 策略网关 · 配置示例
+#
+# 本文件是配置契约的完整示例，不是可直接上线的配置。
+# 所有账号、群号、地址均为占位符；真实配置请复制为 config/gateway.yaml（已被 .gitignore 忽略）。
+#
+# 约定：
+#   - 省略一个字段绝不被解释为「放宽授权」；未声明的能力默认关闭。
+#   - 凭据一律用 *_token_env 指向环境变量，配置文件里不出现明文。
+#   - connection 始终以「网关自身」为视角：connect = 网关拨出，listen = 网关监听。
+#   - side 表示对端角色：upstream = 协议实现端（QQ 侧），downstream = 机器人应用。
+
+schema_version: 1
+
+log:
+  level: info            # debug | info | warn | error
+  format: pretty         # pretty（人读） | json（机器读）
+  message_preview_chars: 0   # >0 时日志里保留消息正文前 N 个字符（公开部署建议 0）
+
+observability:
+  host: 127.0.0.1
+  port: 3011
+  expose_message_preview: false   # /stats 是否返回消息正文片段
+
+runtime:
+  # 有界缓冲：下游消费不过来时不无限堆积
+  max_buffer_bytes_per_connection: 1048576    # 1 MiB
+  on_buffer_full: drop_events                 # drop_events | disconnect_connection
+  max_message_bytes: 262144                   # 单条报文上限，超出即断开
+  max_pending_requests: 64                    # 每个下游未回包请求上限
+  request_timeout_ms: 30000
+  max_regex_input_chars: 4096                 # 正则匹配的输入截断上限
+  reconnect:                                  # connect 类端点的重连退避
+    initial_ms: 1000
+    max_ms: 30000
+    jitter: true
+
+reload:
+  # 仅策略热重载；端口、连接方式、账号绑定、凭据的修改必须重启进程。
+  policy_watch: true        # 监听策略文件变化
+  debounce_ms: 500
+  signal: SIGHUP            # 类 Unix 系统的额外入口；Windows 不支持该信号
+  on_invalid: keep_last     # 校验失败时保留上一份有效策略，并输出明确错误
+
+endpoints:
+  # ── 上游：协议实现端（QQ 侧）────────────────────────────────
+  # 例：网关主动连协议端已开启的 WebSocket 服务（OneBot 术语中的「正向 WebSocket」）
+  qq_primary:
+    side: upstream
+    connection: connect
+    protocol: onebot_v11
+    url: ws://127.0.0.1:3001
+    token_env: UPSTREAM_TOKEN
+    expected_self_id: "100000001"     # 校验连上来的账号身份；不一致则断开并报错
+    reconnect: true
+
+  # 例：复用协议端已有的反向 WebSocket 配置（由协议端拨号到网关）
+  # qq_secondary:
+  #   side: upstream
+  #   connection: listen
+  #   protocol: onebot_v11
+  #   host: 127.0.0.1
+  #   port: 3020
+  #   token_env: UPSTREAM_TOKEN_2
+  #   expected_self_id: "100000002"
+
+  # ── 下游：机器人应用 ────────────────────────────────────────
+  # 例：网关监听，等应用主动连入（Hermes 等本机/远端客户端）
+  app_local:
+    side: downstream
+    connection: listen
+    protocol: onebot_v11
+    host: 127.0.0.1
+    port: 3010
+    token_env: GATEWAY_TOKEN
+    principal: app_local              # 已鉴权主体名，权限按主体授予
+    readonly: false                   # true = 只允许 read 类 Action
+
+  # 例：网关拨号到应用的反向 WebSocket 服务（AstrBot 等以 ws 服务端形态运行）
+  # app_remote:
+  #   side: downstream
+  #   connection: connect
+  #   protocol: onebot_v11
+  #   url: ws://app-host:6199/ws
+  #   token_env: APP_REMOTE_TOKEN
+  #   principal: app_remote
+
+routes:
+  # 一条 route = 一个账号 × 一个下游应用。多账号或多应用请显式写多条 route。
+  - id: primary_to_app_local
+    upstream: qq_primary
+    downstream: app_local
+    policy: default_policy
+
+policies:
+  default_policy:
+    # ── 事件权限（决定 downstream 能看到什么）─────────────────
+    events:
+      default: deny                  # 安全默认：未明确允许的一律拒绝
+      allow:
+        - post_type: message
+          message_type: group
+          group_ids: ["200000001"]
+        - post_type: message
+          message_type: private
+          user_ids: ["100000002"]
+      deny:
+        # 内容规则命中后丢弃（丢弃原因会写进日志与计数）
+        keywords: []                 # ["加群", "扫码"]
+        keywords_regex: []           # ["^\\d{6,}$"]
+        segment_types: []            # [image, record, video, file, forward] 命中即丢
+        drop_self: true              # 丢弃机器人自己发出的消息事件
+        drop_message_ids_dup_within_ms: 3000
+
+    # ── Action 权限（决定 downstream 能做什么）────────────────
+    actions:
+      default: deny
+      allow:
+        - name: get_login_info
+        - name: get_group_list
+        - name: get_msg
+          # 注意：读取单条消息必须受同一可见范围约束，不能绕过 events.allow
+        - name: send_group_msg
+          group_ids: ["200000001"]
+          segment_types: [text, at, reply]
+      deny:
+        - name: set_group_ban
+        - name: set_group_kick
+
+    # ── 限额与去重 ────────────────────────────────────────────
+    limits:
+      inbound_per_group_per_min: 60
+      inbound_per_user_per_min: 20
+      outbound_per_route_per_min: 30
+
+    # 非安全类的降级开关：安全类检查（鉴权、账号绑定、资源范围）永远 fail-closed
+    on_error: deny                   # deny（默认，fail-closed） | skip（跳过该条规则）
+
+extensions:
+  coordination:
+    enabled: false                   # 主动会话调度：默认关闭，且不是核心转发的依赖
