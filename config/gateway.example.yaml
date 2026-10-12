@@ -30,6 +30,9 @@ webui:
   allow_policy_edit: false  # 只允许编辑 policies；关闭时 PUT 接口不存在
   write_token_env: null     # 开启编辑时必填，使用独立的写入凭据环境变量
   log_ring_size: 200        # SSE 元数据环形缓冲，范围 1..10000
+  session_ttl_minutes: 720 # 会话固定有效期，默认 720（12 小时），范围 5..43200
+  max_sessions: 64         # 内存会话上限，默认 64，范围 1..1024；满时淘汰最旧
+  login_attempts_per_min: 10 # 每来源 IP 每分钟失败上限，默认 10，范围 0..1000；0=关闭
 
 runtime:
   # 有界缓冲：下游消费不过来时不无限堆积

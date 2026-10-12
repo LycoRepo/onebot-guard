@@ -55,14 +55,17 @@ Compose 在解析时要求上述两个环境变量已设置，构建验证可以
 | enabled | false | 关闭时不监听、不保留 WebUI 事件 |
 | host | 127.0.0.1 | 允许 ::1；其它地址必须声明 read_token_env |
 | port | 3012 | 0..65535；0 用于临时端口测试，部署时使用独立端口 |
-| read_token_env | null | 配置后所有 `/api/*` 读取要求对应 Bearer；非回环必填 |
+| read_token_env | null | 配置后面板、资源和读 API 要求有效会话或读取 Bearer；非回环必填 |
 | allow_policy_edit | false | 关闭时 PUT /api/policies 返回 404 |
 | write_token_env | null | 编辑开启时必填；写操作始终使用独立的写凭据 |
 | log_ring_size | 200 | 1..10000 条，满时淘汰最旧记录 |
+| session_ttl_minutes | 720 | 5..43200 分钟；固定有效期，不滑动续期 |
+| max_sessions | 64 | 1..1024；满时淘汰最早创建的会话 |
+| login_attempts_per_min | 10 | 0..1000；每来源 IP 每分钟失败上限，0 关闭 |
 
 启用的服务所需环境变量未设置或为空，启动失败；不降级为免认证。建议读写指向不同环境变量并设置不同值。应用比较的是 SHA-256 定长摘要，使用 `timingSafeEqual`。读 token 不能替代写 token，写请求不叠加读 token 检查。`observability.host` 仍只允许 `127.0.0.1` 和 `::1`。
 
-访问 WebUI 的 `/`，在密码输入框提供读取 token。无运行数据的 HTML/CSS/JS 外壳公开读取，以便浏览器首次输入凭据；所有状态、策略、SSE 走带 Authorization 头的请求。读取凭据可保留在当前标签页的 sessionStorage，写凭据只用于本次保存，提交后清空输入框。不把凭据放进 URL。详见 [接口与安全边界](webui.md)。
+访问 WebUI 的 `/`，未认证时只显示独立登录页；读取 token 换取内存会话后才加载面板 HTML/CSS/JS、状态、策略和 SSE。读 token 不再存入 sessionStorage；写 token 仍独立走 Bearer，保留在当前标签页 sessionStorage，登出时清除。不把凭据放进 URL。新会话选项省略时在会话模块应用默认值，不向旧版规范化配置对象添加键，保留第二批精确默认值契约。详见 [接口与安全边界](webui.md)。
 
 保存仅接受策略映射；先解析 YAML，读取当前文件并用 Document API 替换 policies，再对完整文档调用 `validateConfig()`（含 routes 引用），通过后同目录临时文件写入并 rename 原子替换，最后主动调用策略重载。解析、校验、写入或 rename 失败不会改变原文件；重载失败时恢复原文件。非策略段与注释保留，非策略配置漂移则拒绝保存并提示重启。正文与配置文件均限制为 1 MiB。
 
