@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OneBot Guard · 登录</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+    body { margin: 12vh auto; padding: 1.5rem; max-width: 24rem; }
+    label, input, button { display: block; margin: 1rem 0; }
+    input { box-sizing: border-box; width: 100%; padding: .75rem; }
+    button { padding: .65rem 1.25rem; cursor: pointer; }
+    #login-error { min-height: 1.5em; }
+  </style>
+</head>
+<body>
+  <h1>OneBot Guard 登录</h1>
+  <form id="login-form">
+    <label for="login-token">读取 token</label>
+    <input id="login-token" type="password" autocomplete="off" spellcheck="false" required>
+    <button id="login-submit" type="submit">登录</button>
+  </form>
+  <p id="login-error" role="alert"></p>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const error = document.getElementById('login-error');
+      error.textContent = '';
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: document.getElementById('login-token').value })
+        });
+        if (response.ok) location.replace('/');
+        else error.textContent = (await response.json()).error || '登录失败，请重试';
+      } catch { error.textContent = '无法连接，请稍后重试'; }
+    });
+  </script>
+</body>
+</html>

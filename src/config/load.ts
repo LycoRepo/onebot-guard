@@ -94,7 +94,7 @@ export function validateConfig(v: unknown): Config {
   const obs = object(o.observability ?? {}, 'observability', ['host', 'port', 'expose_message_preview']);
   const host = str(obs.host ?? '127.0.0.1', 'observability.host');
   if (!['127.0.0.1', '::1'].includes(host)) fail('observability.host', '只读接口只能绑定回环地址 127.0.0.1 或 ::1');
-  const w = object(o.webui ?? {}, 'webui', ['enabled', 'host', 'port', 'read_token_env', 'allow_policy_edit', 'write_token_env', 'log_ring_size']);
+  const w = object(o.webui ?? {}, 'webui', ['enabled', 'host', 'port', 'read_token_env', 'allow_policy_edit', 'write_token_env', 'log_ring_size', 'session_ttl_minutes', 'max_sessions', 'login_attempts_per_min']);
   const webui: Config['webui'] = {
     enabled: bool(w.enabled, 'webui.enabled', false), host: str(w.host ?? '127.0.0.1', 'webui.host'),
     port: num(w.port, 'webui.port', 3012, 0, 65535),
@@ -102,6 +102,10 @@ export function validateConfig(v: unknown): Config {
     allow_policy_edit: bool(w.allow_policy_edit, 'webui.allow_policy_edit', false),
     write_token_env: w.write_token_env == null ? null : envName(w.write_token_env, 'webui.write_token_env'),
     log_ring_size: num(w.log_ring_size, 'webui.log_ring_size', 200, 1, 10000),
+    // Omitted session options retain the existing normalized config shape.
+    ...(w.session_ttl_minutes === undefined ? {} : { session_ttl_minutes: num(w.session_ttl_minutes, 'webui.session_ttl_minutes', 720, 5, 43200) }),
+    ...(w.max_sessions === undefined ? {} : { max_sessions: num(w.max_sessions, 'webui.max_sessions', 64, 1, 1024) }),
+    ...(w.login_attempts_per_min === undefined ? {} : { login_attempts_per_min: num(w.login_attempts_per_min, 'webui.login_attempts_per_min', 10, 0, 1000) }),
   };
   if (!['127.0.0.1', '::1'].includes(webui.host) && !webui.read_token_env) fail('webui.read_token_env', 'webui.host 非回环时必须声明读取凭据环境变量');
   if (webui.allow_policy_edit && !webui.write_token_env) fail('webui.write_token_env', '开启策略编辑时必须声明写入凭据环境变量');

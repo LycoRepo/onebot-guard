@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let readToken = '';
-try { readToken = sessionStorage.getItem('guard-read-token') || ''; } catch { /* Session storage may be disabled. */ }
+let writeToken = '';
+try { sessionStorage.removeItem('guard-read-token'); writeToken = sessionStorage.getItem('guard-write-token') || ''; } catch { /* Session storage may be disabled. */ }
 let streamController;
 let pollTimer;
 let logLimit = 200;
@@ -14,9 +14,13 @@ function pairs(target, entries) {
     const row = document.createElement('div'); row.append(element('dt', key), element('dd', value)); return row;
   }));
 }
-function headers(token = readToken) { return token ? { Authorization: `Bearer ${token}` } : {}; }
+function headers(token) { return token ? { Authorization: `Bearer ${token}` } : {}; }
+function checkSession(response) {
+  if (response.status === 401) { generation++; clearTimeout(pollTimer); streamController?.abort(); location.replace('/'); throw new Error('请重新登录'); }
+}
 async function api(path, options = {}) {
-  const response = await fetch(path, { cache: 'no-store', headers: headers(), ...options });
+  const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin', ...options });
+  checkSession(response);
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
   return body;
@@ -56,7 +60,8 @@ async function loadPolicies(epoch) {
 async function logs(signal) {
   while (!signal.aborted) {
     try {
-      const response = await fetch('/api/logs', { headers: headers(), cache: 'no-store', signal });
+      const response = await fetch('/api/logs', { credentials: 'same-origin', cache: 'no-store', signal });
+      checkSession(response);
       if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
       $('stream-status').textContent = '实时流已连接';
       // A reconnect starts a fresh replay. Keep the DOM bounded without duplicating history.
@@ -91,20 +96,21 @@ function connect() {
   generation++; clearTimeout(pollTimer); streamController?.abort();
   streamController = new AbortController(); void poll(generation); void loadPolicies(generation); void logs(streamController.signal);
 }
-$('access-form').addEventListener('submit', event => {
-  event.preventDefault(); if ($('read-token').value) readToken = $('read-token').value;
-  try { sessionStorage.setItem('guard-read-token', readToken); } catch { /* Keep in memory only. */ }
-  $('read-token').value = ''; connect();
-});
-$('forget').addEventListener('click', () => {
-  readToken = ''; $('read-token').value = ''; $('write-token').value = '';
-  try { sessionStorage.removeItem('guard-read-token'); } catch { /* Already absent. */ }
-  $('policy-yaml').value = ''; $('logs').replaceChildren(); connect();
+$('logout').addEventListener('click', async () => {
+  try {
+    const response = await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (!response.ok) throw new Error('登出失败，请重试');
+    writeToken = ''; $('write-token').value = '';
+    try { sessionStorage.removeItem('guard-write-token'); } catch { /* Already absent. */ }
+    location.replace('/');
+  } catch (error) { $('error').textContent = error.message; }
 });
 $('policy-form').addEventListener('submit', async event => {
   event.preventDefault(); if ($('edit-controls').hidden) return;
   $('save').disabled = true; $('policy-result').textContent = '正在校验并保存…'; $('policy-result').classList.remove('failed');
-  const token = $('write-token').value; $('write-token').value = '';
+  if ($('write-token').value) writeToken = $('write-token').value;
+  const token = writeToken; $('write-token').value = '';
+  try { sessionStorage.setItem('guard-write-token', token); } catch { /* Keep in memory only. */ }
   try {
     const result = await api('/api/policies', { method: 'PUT', headers: { ...headers(token), 'Content-Type': 'application/json' }, body: JSON.stringify({ policies: $('policy-yaml').value }) });
     $('policy-result').textContent = `保存成功 · ${result.reload.reason}`; reload(result.reload);

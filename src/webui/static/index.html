@@ -11,9 +11,8 @@
   <header><div><p class="eyebrow">ONEBOT GUARD / OPERATIONS</p><h1>网关运维面板</h1></div><span id="connection" role="status">正在连接面板…</span></header>
   <main>
     <section aria-labelledby="access-title" class="access">
-      <h2 id="access-title">访问凭据</h2>
-      <form id="access-form"><label for="read-token">读取 token（配置要求时填写）</label><div class="inline"><input id="read-token" type="password" autocomplete="off" spellcheck="false"><button type="submit">连接 / 刷新</button><button id="forget" type="button" class="secondary">清除凭据</button></div></form>
-      <p class="muted">凭据只在当前标签页会话中使用，通过请求头发送。</p>
+      <h2 id="access-title">登录状态</h2>
+      <p>已通过会话认证或回环访问边界。</p><button id="logout" type="button" class="secondary">登出</button>
     </section>
     <p id="error" role="alert"></p>
     <section aria-labelledby="overview-title"><h2 id="overview-title">总览</h2><dl id="overview" class="cards"></dl></section>
