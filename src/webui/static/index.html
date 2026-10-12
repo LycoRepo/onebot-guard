@@ -39,10 +39,16 @@
 
       <section class="page" id="endpoints" aria-labelledby="endpoints-title">
         <div class="phead"><h1 id="endpoints-title">端点</h1><span class="sub">连接、缓冲与状态表</span></div>
-        <h2 class="zone up"><span class="bar"></span>上游<span class="hint">QQ 侧 · 协议端</span></h2>
-        <div id="endpoints-upstream" class="card ep-list"><p class="muted">等待状态数据</p></div>
-        <h2 class="zone down"><span class="bar"></span>下游<span class="hint">应用侧 · 机器人</span></h2>
-        <div id="endpoints-downstream" class="card ep-list"><p class="muted">等待状态数据</p></div>
+        <div class="zones">
+          <div class="zone-block">
+            <h2 class="zone up"><span class="bar"></span>上游<span class="hint">QQ 侧 · 协议端</span></h2>
+            <div id="endpoints-upstream" class="card ep-list"><p class="muted">等待状态数据</p></div>
+          </div>
+          <div class="zone-block">
+            <h2 class="zone down"><span class="bar"></span>下游<span class="hint">应用侧 · 机器人</span></h2>
+            <div id="endpoints-downstream" class="card ep-list"><p class="muted">等待状态数据</p></div>
+          </div>
+        </div>
         <h2 class="zone"><span class="bar"></span>状态表规模<span class="hint">内存中的有界状态</span></h2>
         <dl id="queues" class="cards compact"></dl>
       </section>

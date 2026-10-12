@@ -57,10 +57,10 @@ nav a .ic { width: 16px; text-align: center; opacity: .8; font-size: 13px; }
 }
 .linkbtn:hover { color: var(--fg); }
 
-main { padding: 26px 30px 64px; max-width: 1040px; min-width: 0; }
+main { padding: 26px 32px 64px; min-width: 0; }
 
 /* ── 分页：纯 CSS 控制，JS 只负责切换 data-page ── */
-.page { display: none; }
+.page { display: none; max-width: 1800px; margin: 0 auto; }
 body[data-page="overview"] #page-overview,
 body[data-page="endpoints"] #endpoints,
 body[data-page="routes"] #page-routes,
@@ -97,6 +97,8 @@ h2.zone .bar { width: 3px; height: 15px; border-radius: 2px; background: var(--a
 h2.zone.up .bar { background: var(--ok); }
 h2.zone.down .bar { background: var(--accent); }
 h2.zone .hint { font-weight: 400; font-size: 12.5px; color: var(--fg-faint); }
+.zones { display: grid; gap: 0 20px; align-items: start; }
+@media (min-width: 1200px) { .zones { grid-template-columns: 1fr 1fr; } }
 .ep-list { margin-top: 10px; }
 .ep { display: flex; align-items: flex-start; gap: 14px; padding: 15px 18px; flex-wrap: wrap; }
 .ep + .ep { border-top: 1px solid var(--line-soft); }
