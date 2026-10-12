@@ -1,4 +1,4 @@
-# onebot-guard
+# onebot-guard (Work in progress)
 
 > 状态：**第一批已实现，含协议模拟端测试**。真实协议端兼容性与生产运行验证仍需部署方完成。
 
