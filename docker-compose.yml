@@ -11,17 +11,16 @@ services:
     container_name: onebot-policy-gateway
     restart: unless-stopped
 
-    ports:
-      - "127.0.0.1:3010:3010"   # 下游应用接入（inbound）
-      - "127.0.0.1:3011:3011"   # 只读 /health、/stats
+    # Linux host 网络：网关直接使用宿主回环，能连本机协议端，且 /stats 仍只监听回环。
+    # 不做端口发布；实际监听地址由配置中的 host: 127.0.0.1 控制。
+    network_mode: host
 
     volumes:
-      - ./config/gateway.yaml:/app/config/gateway.yaml:ro
+      - ./config:/app/config:ro
 
     environment:
       GATEWAY_TOKEN: ${GATEWAY_TOKEN:?GATEWAY_TOKEN is required}
       UPSTREAM_TOKEN: ${UPSTREAM_TOKEN:?UPSTREAM_TOKEN is required}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
 
     # 有界内存；上限被触发时的行为由配置里的 backpressure 决定
     mem_limit: 256m

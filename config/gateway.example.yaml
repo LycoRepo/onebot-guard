@@ -5,7 +5,7 @@
 #
 # 约定：
 #   - 省略一个字段绝不被解释为「放宽授权」；未声明的能力默认关闭。
-#   - 凭据一律用 *_token_env 指向环境变量，配置文件里不出现明文。
+#   - 凭据一律用 token_env 指向环境变量，配置文件里不出现明文。
 #   - connection 始终以「网关自身」为视角：connect = 网关拨出，listen = 网关监听。
 #   - side 表示对端角色：upstream = 协议实现端（QQ 侧），downstream = 机器人应用。
 
@@ -23,12 +23,16 @@ observability:
 
 runtime:
   # 有界缓冲：下游消费不过来时不无限堆积
+  max_connections: 64                         # 端点总数上限；每个端点同时只接一个会话
   max_buffer_bytes_per_connection: 1048576    # 1 MiB
   on_buffer_full: drop_events                 # drop_events | disconnect_connection
   max_message_bytes: 262144                   # 单条报文上限，超出即断开
   max_pending_requests: 64                    # 每个下游未回包请求上限
   request_timeout_ms: 30000
-  max_regex_input_chars: 4096                 # 正则匹配的输入截断上限
+  max_regex_input_chars: 4096                 # 内容匹配输入上限；超过按 on_error 处理，不截断后放行
+  max_state_entries: 4096                     # 去重、入站限流、出站限流各自的条目上限
+  ping_interval_ms: 30000                     # WS ping；下一次仍未收到 pong 时断开
+  handshake_timeout_ms: 10000                 # WS 握手及上游账号探测超时
   reconnect:                                  # connect 类端点的重连退避
     initial_ms: 1000
     max_ms: 30000
@@ -50,7 +54,7 @@ endpoints:
     protocol: onebot_v11
     url: ws://127.0.0.1:3001
     token_env: UPSTREAM_TOKEN
-    expected_self_id: "100000001"     # 校验连上来的账号身份；不一致则断开并报错
+    expected_self_id: "ACCOUNT_A"     # 占位符；真实配置填写账号字符串，不一致则断开
     reconnect: true
 
   # 例：复用协议端已有的反向 WebSocket 配置（由协议端拨号到网关）
@@ -61,7 +65,7 @@ endpoints:
   #   host: 127.0.0.1
   #   port: 3020
   #   token_env: UPSTREAM_TOKEN_2
-  #   expected_self_id: "100000002"
+  #   expected_self_id: "ACCOUNT_B"
 
   # ── 下游：机器人应用 ────────────────────────────────────────
   # 例：网关监听，等应用主动连入（Hermes 等本机/远端客户端）
@@ -99,10 +103,15 @@ policies:
       allow:
         - post_type: message
           message_type: group
-          group_ids: ["200000001"]
+          group_ids: ["GROUP_ALLOWED"]
         - post_type: message
           message_type: private
-          user_ids: ["100000002"]
+          user_ids: ["USER_ALLOWED"]
+        # 心跳/生命周期也需要显式授权；内容过滤不作用于它们。
+        - post_type: meta_event
+          meta_event_type: heartbeat
+        - post_type: meta_event
+          meta_event_type: lifecycle
       deny:
         # 内容规则命中后丢弃（丢弃原因会写进日志与计数）
         keywords: []                 # ["加群", "扫码"]
@@ -118,10 +127,11 @@ policies:
         - name: get_login_info
         - name: get_group_list
         - name: get_msg
-          # 注意：读取单条消息必须受同一可见范围约束，不能绕过 events.allow
+          # 第一批无可信归属索引：即使显式 allow 也拒绝。此项展示保守行为。
         - name: send_group_msg
-          group_ids: ["200000001"]
+          group_ids: ["GROUP_ALLOWED"]
           segment_types: [text, at, reply]
+          # reply 第一批统一拒绝；at 另需 user_ids 授权，@全体需 allow_at_all。
       deny:
         - name: set_group_ban
         - name: set_group_kick

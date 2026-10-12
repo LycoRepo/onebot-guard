@@ -12,7 +12,7 @@
     "start": "node src/index.ts",
     "dev": "node --watch src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/"
+    "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
     "ws": "^8.18.0",

@@ -8,3 +8,6 @@ coverage
 .env
 .env.*
 config/gateway.yaml
+config/*.local.yaml
+*.pem
+logs
