@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OneBot Guard · 运维面板</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <header><div><p class="eyebrow">ONEBOT GUARD / OPERATIONS</p><h1>网关运维面板</h1></div><span id="connection" role="status">正在连接面板…</span></header>
+  <main>
+    <section aria-labelledby="access-title" class="access">
+      <h2 id="access-title">访问凭据</h2>
+      <form id="access-form"><label for="read-token">读取 token（配置要求时填写）</label><div class="inline"><input id="read-token" type="password" autocomplete="off" spellcheck="false"><button type="submit">连接 / 刷新</button><button id="forget" type="button" class="secondary">清除凭据</button></div></form>
+      <p class="muted">凭据只在当前标签页会话中使用，通过请求头发送。</p>
+    </section>
+    <p id="error" role="alert"></p>
+    <section aria-labelledby="overview-title"><h2 id="overview-title">总览</h2><dl id="overview" class="cards"></dl></section>
+    <section aria-labelledby="endpoints-title"><h2 id="endpoints-title">端点</h2><div id="endpoints" class="cards"><p class="muted">等待状态数据</p></div></section>
+    <section aria-labelledby="routes-title"><h2 id="routes-title">路由</h2><div class="table-wrap"><table><thead><tr><th scope="col">路由</th><th scope="col">上游就绪</th><th scope="col">下游就绪</th><th scope="col">可用</th><th scope="col">待回包</th></tr></thead><tbody id="routes"></tbody></table></div></section>
+    <section aria-labelledby="queues-title"><h2 id="queues-title">状态表规模</h2><dl id="queues" class="cards compact"></dl></section>
+    <div class="columns"><section aria-labelledby="rules-title"><h2 id="rules-title">规则命中</h2><dl id="rules" class="metrics"></dl></section><section aria-labelledby="issues-title"><h2 id="issues-title">传输问题</h2><dl id="issues" class="metrics"></dl></section></div>
+    <section aria-labelledby="logs-title"><div class="section-heading"><h2 id="logs-title">实时日志</h2><span id="stream-status" role="status">尚未连接</span><label><input id="follow" type="checkbox" checked> 跟随最新</label></div><ol id="logs" tabindex="0" aria-label="实时事件记录"></ol></section>
+    <section aria-labelledby="policies-title"><div class="section-heading"><h2 id="policies-title">策略</h2><span id="reload-status"></span></div><p class="muted">仅编辑策略名称到策略内容的 YAML 映射。保存前会校验完整配置与路由引用。</p>
+      <form id="policy-form"><label for="policy-yaml">当前策略 YAML</label><textarea id="policy-yaml" readonly spellcheck="false" rows="18"></textarea><div id="edit-controls" hidden><label for="write-token">写入 token</label><div class="inline"><input id="write-token" type="password" autocomplete="off" spellcheck="false"><button id="save" type="submit">校验并保存</button></div></div></form>
+      <p id="policy-result" role="status" aria-live="polite">策略尚未加载</p>
+    </section>
+  </main><footer>OneBot v11 · 默认拒绝 · 无应用发送队列</footer>
+</body>
+</html>

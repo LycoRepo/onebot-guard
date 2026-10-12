@@ -4,26 +4,32 @@ import { loadConfig } from './config/load.ts';
 import { PolicyReloader } from './config/reload.ts';
 import { Observability } from './observability/index.ts';
 import { Gateway } from './route/index.ts';
+import { WebUI } from './webui/index.ts';
+import { redactor } from './webui/security.ts';
 
 export async function startGateway(path: string, env: NodeJS.ProcessEnv = process.env, write?: (line: string) => void): Promise<{
-  gateway: Gateway; observation: Observability; reloader: PolicyReloader; stop(): Promise<void>;
+  gateway: Gateway; observation: Observability; reloader: PolicyReloader; webui: WebUI; stop(): Promise<void>;
 }> {
   const config = loadConfig(path);
   const observation = new Observability(config, write);
   const gateway = new Gateway(config, observation, env);
-  const reloader = new PolicyReloader(path, config, next => gateway.replacePolicies(next.policies), (success, reason) => observation.log(success ? 'info' : 'error', success ? 'policy_reload_success' : 'policy_reload_failure', { reason }));
+  const reloader = new PolicyReloader(path, config, next => gateway.replacePolicies(next.policies), (success, reason) => {
+    observation.log(success ? 'info' : 'error', success ? 'policy_reload_success' : 'policy_reload_failure', { reason });
+    if (observation.events.capacity) observation.events.publish({ time: new Date().toISOString(), event: 'reload', ok: success, reason });
+  }, redactor(config, env));
+  const webui = new WebUI(config, () => gateway.snapshot(), observation, reloader, path, env);
   let stopping: Promise<void> | undefined;
   const stop = (): Promise<void> => {
     if (!stopping) {
       reloader.stop();
-      stopping = (async () => { await gateway.stop(); await observation.stop(); observation.log('info', 'gateway_stopped'); })();
+      stopping = (async () => { await webui.stop(); await gateway.stop(); await observation.stop(); observation.log('info', 'gateway_stopped'); })();
     }
     return stopping;
   };
-  try { await gateway.start(); await observation.start(() => gateway.snapshot()); reloader.start(); }
+  try { await gateway.start(); await observation.start(() => gateway.snapshot()); await webui.start(); reloader.start(); }
   catch (error) { await stop(); throw error; }
   observation.log('info', 'gateway_started');
-  return { gateway, observation, reloader, stop };
+  return { gateway, observation, reloader, webui, stop };
 }
 
 export function installSignals(app: Awaited<ReturnType<typeof startGateway>>): () => void {

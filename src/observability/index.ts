@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import type { Config } from '../config/types.ts';
 import type { Decision, Packet } from '../protocol/onebot11/index.ts';
 import { scopeKey } from '../protocol/onebot11/index.ts';
+import { EventRing } from './events.ts';
 
 type Level = Config['log']['level'];
 const levels: Record<Level, number> = { debug: 0, info: 1, warn: 2, error: 3 };
@@ -29,11 +30,16 @@ export class Observability {
   routes = new Map<string, { allowed: number; denied: number }>();
   rules = new Map<string, number>();
   issues = new Map<string, number>();
+  events: EventRing;
   constructor(config: Config, write = (line: string): void => { process.stdout.write(line); }) {
     this.config = config; this.write = write;
+    this.events = new EventRing(config.webui.enabled ? config.webui.log_ring_size : 0);
     for (const route of config.routes) this.routes.set(route.id, { allowed: 0, denied: 0 });
   }
   log(level: Level, event: string, fields: Record<string, unknown> = {}): void {
+    if (this.events.capacity && (event === 'session_open' || event === 'session_close' || event === 'transport_issue')) {
+      this.events.publish({ ...fields, time: new Date().toISOString(), event });
+    }
     if (levels[level] < levels[this.config.log.level]) return;
     const entry = { time: new Date().toISOString(), level, event, ...fields };
     // Even pretty mode keeps one escaped record per line.
@@ -48,6 +54,10 @@ export class Observability {
     if (!decision.allowed) {
       const entry = { time: new Date().toISOString(), level: 'warn', event: 'denied', route, direction, rule: decision.rule, reason: decision.reason, generation, scope: scopeKey(packet), preview: preview(packet, this.config.log.message_preview_chars) };
       this.write(JSON.stringify(entry) + '\n');
+      if (this.events.capacity) {
+        const { preview: messagePreview, ...metadata } = entry;
+        this.events.publish({ ...metadata, event: 'denied', ...(this.config.observability.expose_message_preview && messagePreview !== undefined ? { preview: messagePreview } : {}) });
+      }
     }
   }
   issue(endpoint: string, reason: string): void {

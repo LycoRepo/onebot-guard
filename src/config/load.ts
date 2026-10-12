@@ -88,12 +88,23 @@ function policy(v: unknown, p: string): Policy {
   };
 }
 export function validateConfig(v: unknown): Config {
-  const o = object(v, 'config', ['schema_version', 'log', 'observability', 'runtime', 'reload', 'endpoints', 'routes', 'policies', 'extensions']);
+  const o = object(v, 'config', ['schema_version', 'log', 'observability', 'webui', 'runtime', 'reload', 'endpoints', 'routes', 'policies', 'extensions']);
   if (o.schema_version !== 1) fail('schema_version', '仅支持版本 1');
   const log = object(o.log ?? {}, 'log', ['level', 'format', 'message_preview_chars']);
   const obs = object(o.observability ?? {}, 'observability', ['host', 'port', 'expose_message_preview']);
   const host = str(obs.host ?? '127.0.0.1', 'observability.host');
   if (!['127.0.0.1', '::1'].includes(host)) fail('observability.host', '只读接口只能绑定回环地址 127.0.0.1 或 ::1');
+  const w = object(o.webui ?? {}, 'webui', ['enabled', 'host', 'port', 'read_token_env', 'allow_policy_edit', 'write_token_env', 'log_ring_size']);
+  const webui: Config['webui'] = {
+    enabled: bool(w.enabled, 'webui.enabled', false), host: str(w.host ?? '127.0.0.1', 'webui.host'),
+    port: num(w.port, 'webui.port', 3012, 0, 65535),
+    read_token_env: w.read_token_env == null ? null : envName(w.read_token_env, 'webui.read_token_env'),
+    allow_policy_edit: bool(w.allow_policy_edit, 'webui.allow_policy_edit', false),
+    write_token_env: w.write_token_env == null ? null : envName(w.write_token_env, 'webui.write_token_env'),
+    log_ring_size: num(w.log_ring_size, 'webui.log_ring_size', 200, 1, 10000),
+  };
+  if (!['127.0.0.1', '::1'].includes(webui.host) && !webui.read_token_env) fail('webui.read_token_env', 'webui.host 非回环时必须声明读取凭据环境变量');
+  if (webui.allow_policy_edit && !webui.write_token_env) fail('webui.write_token_env', '开启策略编辑时必须声明写入凭据环境变量');
   const r = object(o.runtime ?? {}, 'runtime', ['max_connections', 'max_buffer_bytes_per_connection', 'on_buffer_full', 'max_message_bytes', 'max_pending_requests', 'request_timeout_ms', 'max_regex_input_chars', 'max_state_entries', 'ping_interval_ms', 'handshake_timeout_ms', 'reconnect']);
   const rc = object(r.reconnect ?? {}, 'runtime.reconnect', ['initial_ms', 'max_ms', 'jitter']);
   const reload = object(o.reload ?? {}, 'reload', ['policy_watch', 'debounce_ms', 'signal', 'on_invalid']);
@@ -152,6 +163,7 @@ export function validateConfig(v: unknown): Config {
   if (Object.keys(endpoints).length > maxConnections) fail('runtime.max_connections', '不得小于配置中的端点数');
   return {
     schema_version: 1,
+    webui,
     log: { level: choice(log.level, 'log.level', ['debug', 'info', 'warn', 'error'], 'info'), format: choice(log.format, 'log.format', ['pretty', 'json'], 'json'), message_preview_chars: num(log.message_preview_chars, 'log.message_preview_chars', 0, 0, 4096) },
     observability: { host, port: num(obs.port, 'observability.port', 3011, 0, 65535), expose_message_preview: bool(obs.expose_message_preview, 'observability.expose_message_preview', false) },
     runtime: { max_connections: maxConnections, max_buffer_bytes_per_connection: num(r.max_buffer_bytes_per_connection, 'runtime.max_buffer_bytes_per_connection', 1048576, 1), on_buffer_full: choice(r.on_buffer_full, 'runtime.on_buffer_full', ['drop_events', 'disconnect_connection'], 'drop_events'), max_message_bytes: num(r.max_message_bytes, 'runtime.max_message_bytes', 262144, 1), max_pending_requests: num(r.max_pending_requests, 'runtime.max_pending_requests', 64, 1), request_timeout_ms: num(r.request_timeout_ms, 'runtime.request_timeout_ms', 30000, 1), max_regex_input_chars: num(r.max_regex_input_chars, 'runtime.max_regex_input_chars', 4096, 1, 65536), max_state_entries: num(r.max_state_entries, 'runtime.max_state_entries', 4096, 1), ping_interval_ms: num(r.ping_interval_ms, 'runtime.ping_interval_ms', 30000, 10), handshake_timeout_ms: num(r.handshake_timeout_ms, 'runtime.handshake_timeout_ms', 10000, 1), reconnect: { initial_ms: initial, max_ms: maximum, jitter: bool(rc.jitter, 'runtime.reconnect.jitter', true) } },

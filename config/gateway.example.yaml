@@ -21,6 +21,16 @@ observability:
   port: 3011
   expose_message_preview: false   # /stats 是否返回消息正文片段
 
+# WebUI 独立端口；默认关闭，不影响上面的回环只读观测接口。
+webui:
+  enabled: false            # 关闭时不监听端口
+  host: 127.0.0.1           # 支持 ::1；非回环必须配置 read_token_env
+  port: 3012
+  read_token_env: null      # 可选的读取凭据环境变量名；不填明文 token
+  allow_policy_edit: false  # 只允许编辑 policies；关闭时 PUT 接口不存在
+  write_token_env: null     # 开启编辑时必填，使用独立的写入凭据环境变量
+  log_ring_size: 200        # SSE 元数据环形缓冲，范围 1..10000
+
 runtime:
   # 有界缓冲：下游消费不过来时不无限堆积
   max_connections: 64                         # 端点总数上限；每个端点同时只接一个会话

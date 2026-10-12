@@ -61,6 +61,7 @@ export interface Config {
   schema_version: 1;
   log: { level: 'debug' | 'info' | 'warn' | 'error'; format: 'pretty' | 'json'; message_preview_chars: number };
   observability: { host: string; port: number; expose_message_preview: boolean };
+  webui: { enabled: boolean; host: string; port: number; read_token_env: string | null; allow_policy_edit: boolean; write_token_env: string | null; log_ring_size: number };
   runtime: {
     max_connections: number;
     max_buffer_bytes_per_connection: number;
