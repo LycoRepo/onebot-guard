@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TestContext } from 'node:test';
 import WebSocket, { WebSocketServer } from 'ws';
@@ -71,7 +70,7 @@ export async function mockServer(t: TestContext): Promise<{ server: WebSocketSer
   return { server, url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`, connections };
 }
 export async function harness(t: TestContext, cfg = config()) {
-  const directory = await mkdtemp(join(tmpdir(), 'onebot-guard-test-'));
+  const directory = await mkdtemp(join(process.cwd(), 'tests', '.onebot-guard-test-'));
   const path = join(directory, 'gateway.yaml');
   const logs: string[] = [];
   const token = randomUUID();
@@ -83,7 +82,7 @@ export async function harness(t: TestContext, cfg = config()) {
   t.after(async () => {
     for (const client of clients) client.socket.terminate();
     await app.stop();
-    // directory comes directly from mkdtemp inside the system temp directory.
+    // directory comes directly from mkdtemp inside this repository's tests directory.
     await rm(directory, { recursive: true, force: true });
   });
   const dial = async (name: string): Promise<Inbox> => {
