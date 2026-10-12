@@ -64,6 +64,7 @@ main { padding: 26px 32px 64px; min-width: 0; }
 body[data-page="overview"] #page-overview,
 body[data-page="endpoints"] #endpoints,
 body[data-page="routes"] #page-routes,
+body[data-page="rules"] #page-rules,
 body[data-page="logs"] #page-logs,
 body[data-page="policies"] #page-policies { display: block; }
 
@@ -160,6 +161,13 @@ textarea {
   color: var(--fg); padding: 14px; font: 12.5px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 #edit-controls { margin: 0 0 16px; }
+.form-block { padding: 18px; margin-bottom: 16px; }
+.form-block .card-title { margin: 0; }
+.form-block label { margin: 14px 0 6px; font-size: 13.5px; }
+.form-block .hint, .card-title .hint { color: var(--fg-faint); font-size: 12px; font-weight: 400; }
+.form-block textarea { margin-bottom: 0; }
+.checks { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 2px 0; }
+.checks label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--fg-dim); }
 #error, .failed { color: var(--bad); }
 #error:empty { display: none; }
 #error { margin: 0 0 16px; font-size: 13.5px; }

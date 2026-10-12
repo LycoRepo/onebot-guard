@@ -3,7 +3,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import type { Config } from '../config/types.ts';
+import type { Config, Policy } from '../config/types.ts';
 import type { PolicyReloader } from '../config/reload.ts';
 import type { Observability } from '../observability/index.ts';
 import type { Gateway } from '../route/index.ts';
@@ -11,6 +11,8 @@ import { credential } from '../identity/index.ts';
 import { authorized, redactor } from './security.ts';
 import { PolicyError, PolicyFile } from './policies.ts';
 import { cookie, sessionCookie, Sessions } from './sessions.ts';
+import { parseRules, readRules, writeRules } from './rules.ts';
+import { stringify } from 'yaml';
 
 const MAX_BODY = 1048576;
 const MAX_STREAM_BUFFER = 65536;
@@ -122,18 +124,19 @@ export class WebUI {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
     res.setHeader('Referrer-Policy', 'no-referrer');
-    const path = req.url ?? '';
-    const writing = req.method === 'PUT' && path === '/api/policies';
+    const path = new URL(req.url ?? '/', 'http://internal').pathname;
+    const writing = req.method === 'PUT' && (path === '/api/policies' || path === '/api/rules');
     const login = req.method === 'POST' && path === '/api/login';
     const logout = req.method === 'POST' && path === '/api/logout';
     if (writing && !this.config.webui.allow_policy_edit) { this.json(res, 404, { ok: false, error: '写接口未启用' }); return; }
     if (login && !this.config.webui.read_token_env) { this.json(res, 404, { ok: false, error: '登录未启用' }); return; }
     if ((['/api/login', '/api/logout'].includes(path) && req.method !== 'POST') || (req.method !== 'GET' && !writing && !login && !logout)) {
-      res.setHeader('Allow', ['/api/login', '/api/logout'].includes(path) ? 'POST' : path === '/api/policies' && this.config.webui.allow_policy_edit ? 'GET, PUT' : 'GET');
+      const editable = (path === '/api/policies' || path === '/api/rules') && this.config.webui.allow_policy_edit;
+      res.setHeader('Allow', ['/api/login', '/api/logout'].includes(path) ? 'POST' : editable ? 'GET, PUT' : 'GET');
       this.json(res, 405, { ok: false, error: '不支持此方法' }); return;
     }
     const asset = assets.get(path);
-    if (!asset && !login && !logout && !['/api/state', '/api/policies', '/api/logs'].includes(path)) { this.json(res, 404, { ok: false, error: '接口不存在' }); return; }
+    if (!asset && !login && !logout && !['/api/state', '/api/policies', '/api/rules', '/api/logs'].includes(path)) { this.json(res, 404, { ok: false, error: '接口不存在' }); return; }
     const session = sessionCookie(req.headers.cookie);
     const hasSession = this.sessions.valid(session);
     const canRead = hasSession || this.readToken === undefined || authorized(req.headers.authorization, this.readToken);
@@ -180,6 +183,14 @@ export class WebUI {
       }
       if (path === '/api/state') { this.json(res, 200, this.state()); return; }
       if (path === '/api/logs') { this.stream(res, hasSession ? session : undefined); return; }
+      if (path === '/api/rules' && !writing) {
+        const parsed = this.policies.get().parsed as Record<string, Policy>;
+        const names = Object.keys(parsed);
+        const wanted = new URL(req.url ?? '/', 'http://internal').searchParams.get('policy') ?? names[0]!;
+        if (!parsed[wanted]) throw new PolicyError(`策略 ${wanted} 不存在`);
+        this.json(res, 200, { policies: names, policy: wanted, rules: readRules(parsed[wanted]!), reload: this.reloader.lastResult });
+        return;
+      }
       if (!writing) { this.json(res, 200, { ...this.policies.get(), reload: this.reloader.lastResult, allow_policy_edit: this.config.webui.allow_policy_edit }); return; }
       if (req.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
         this.json(res, 415, { ok: false, error: 'Content-Type 必须是 application/json' }); return;
@@ -187,6 +198,18 @@ export class WebUI {
       const raw = await this.body(req);
       let body: unknown;
       try { body = JSON.parse(raw); } catch { throw new PolicyError('请求体必须是有效 JSON'); }
+      if (path === '/api/rules') {
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PolicyError('请求体必须是对象');
+        const { policy: wanted, rules } = body as { policy?: unknown; rules?: unknown };
+        if (typeof wanted !== 'string') throw new PolicyError('缺少 policy 字段');
+        const parsed = this.policies.get().parsed as Record<string, Policy>;
+        if (!parsed[wanted]) throw new PolicyError(`策略 ${wanted} 不存在`);
+        let next: Policy;
+        try { next = writeRules(parsed[wanted]!, parseRules(rules)); }
+        catch (error) { throw new PolicyError(error instanceof Error ? error.message : '规则无法解析'); }
+        this.json(res, 200, this.policies.save(stringify({ ...parsed, [wanted]: next }, { aliasDuplicateObjects: false })));
+        return;
+      }
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || !('policies' in body) || typeof body.policies !== 'string') {
         throw new PolicyError('请求体仅允许 policies 字符串字段');
       }
