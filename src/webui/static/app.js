@@ -14,6 +14,42 @@ function pairs(target, entries) {
     const row = document.createElement('div'); row.append(element('dt', key), element('dd', value)); return row;
   }));
 }
+function span(cls, text) { const node = document.createElement('span'); node.className = cls; node.textContent = String(text ?? ''); return node; }
+function timeOf(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value ?? '') : date.toLocaleTimeString('zh-CN', { hour12: false });
+}
+function pair(label, value, cls) { const cell = document.createElement('span'); const strong = span('', value); if (cls) strong.className = cls; cell.append(element('i', label), strong); return cell; }
+function endpointCard(name, endpoint) {
+  const row = document.createElement('div'); row.className = 'ep';
+  const who = document.createElement('div'); who.className = 'who';
+  who.append(element('div', name), element('div', `${endpoint.side === 'upstream' ? '上游' : '下游'} · ${endpoint.onebot}`));
+  who.lastChild.className = 'role'; who.firstChild.className = 'name';
+  const tag = span('tag', endpoint.connection === 'connect' ? '网关拨出' : '等待连入');
+  const meta = span('meta', '');
+  meta.append(
+    pair('状态', `${yes(endpoint.connected)} / ${yes(endpoint.ready)}`, endpoint.ready ? 'ok' : ''),
+    pair('缓冲', `${endpoint.buffered_bytes} B`),
+    pair('重连', endpoint.reconnect_attempts),
+  );
+  row.append(who, tag, meta); return row;
+}
+function logRow(event) {
+  const kind = String(event.event ?? '');
+  const row = document.createElement('li');
+  if (kind === 'denied') row.className = String(event.rule ?? '').startsWith('action.') ? 'rejected' : 'denied';
+  else if (kind === 'allowed') row.className = 'allowed';
+  const level = { denied: 'denied', allowed: 'allow', session_open: '连接', session_close: '断开', transport_issue: '传输', reload: '重载' }[kind] ?? kind;
+  const bucket = kind === 'denied' || kind === 'allowed' ? String(event.direction ?? '')
+    : kind.startsWith('session') ? String(event.side ?? '') : '';
+  const detail = kind === 'denied' ? `${event.route ?? ''} · ${event.rule ?? ''} · ${event.reason ?? ''}${event.scope ? ` · ${event.scope}` : ''}`
+    : kind === 'allowed' ? `${event.route ?? ''} · ${event.rule ?? ''}${event.scope ? ` · ${event.scope}` : ''}`
+    : kind === 'transport_issue' ? `${event.endpoint ?? ''} · ${event.reason ?? ''}`
+    : kind === 'reload' ? `${event.ok ? '成功' : '失败'} · ${event.reason ?? ''}`
+    : `${event.endpoint ?? ''} · ${event.generation ? String(event.generation).slice(0, 8) : ''}`;
+  row.append(span('tm', timeOf(event.time)), span('lv', level), span('rt', bucket), span('msg', detail));
+  return row;
+}
 function headers(token) { return token ? { Authorization: `Bearer ${token}` } : {}; }
 function checkSession(response) {
   if (response.status === 401) { generation++; clearTimeout(pollTimer); streamController?.abort(); location.replace('/'); throw new Error('请重新登录'); }
@@ -27,15 +63,19 @@ async function api(path, options = {}) {
 }
 function reload(result) { $('reload-status').textContent = result ? `${time(result.time)} · ${result.ok ? '重载成功' : '重载失败'} · ${result.reason}` : '尚未重载'; }
 function render(state) {
-  $('connection').textContent = '面板已连接';
+  $('connection').className = 'pill'; $('connection').textContent = '面板已连接';
   pairs($('overview'), [['网关健康', state.healthy ? '健康' : '等待端点就绪'], ['启动时间', time(state.started_at)], ['最后事件', time(state.last_event_at)], ['允许', state.totals.allowed], ['拒绝', state.totals.denied]]);
-  $('endpoints').replaceChildren(...Object.entries(state.endpoints).map(([name, endpoint]) => {
-    const card = document.createElement('article'); const details = document.createElement('dl');
-    pairs(details, [['角色', endpoint.side], ['连接方式', `${endpoint.connection} · ${endpoint.onebot}`], ['已连接 / 就绪', `${yes(endpoint.connected)} / ${yes(endpoint.ready)}`], ['缓冲字节', endpoint.buffered_bytes], ['重连次数', endpoint.reconnect_attempts]]);
-    card.append(element('h3', name), details); return card;
-  }));
+  const sides = { upstream: [], downstream: [] };
+  for (const [name, endpoint] of Object.entries(state.endpoints)) sides[endpoint.side === 'upstream' ? 'upstream' : 'downstream'].push([name, endpoint]);
+  for (const [side, target] of [['upstream', 'endpoints-upstream'], ['downstream', 'endpoints-downstream']]) {
+    const rows = sides[side].map(([name, endpoint]) => endpointCard(name, endpoint));
+    $(target).replaceChildren(...(rows.length ? rows : [Object.assign(document.createElement('p'), { className: 'muted empty', textContent: '这一侧没有配置端点' })]));
+  }
   $('routes').replaceChildren(...state.routes.map(route => {
-    const row = document.createElement('tr'); row.append(...[route.id, yes(route.upstream_ready), yes(route.downstream_ready), yes(route.ready), route.pending_requests].map(value => element('td', value))); return row;
+    const cell = (text, cls) => { const td = element('td', text); if (cls) td.className = cls; return td; };
+    const row = document.createElement('tr');
+    row.append(cell(route.id, 'mono'), cell(yes(route.upstream_ready), route.upstream_ready ? 'ok' : ''), cell(yes(route.downstream_ready), route.downstream_ready ? 'ok' : ''), cell(yes(route.ready), route.ready ? 'ok' : ''), cell(route.pending_requests));
+    return row;
   }));
   pairs($('queues'), Object.entries(state.queues));
   pairs($('rules'), Object.entries(state.hits_by_rule)); pairs($('issues'), Object.entries(state.transport_issues));
@@ -45,7 +85,7 @@ function render(state) {
 }
 async function poll(epoch) {
   try { const state = await api('/api/state'); if (epoch !== generation) return; render(state); $('error').textContent = ''; }
-  catch (error) { if (epoch !== generation) return; $('connection').textContent = '面板连接中断'; $('error').textContent = error.message; }
+  catch (error) { if (epoch !== generation) return; $('connection').className = 'pill bad'; $('connection').textContent = '面板连接中断'; $('error').textContent = error.message; }
   if (epoch === generation) pollTimer = setTimeout(() => poll(epoch), 3000);
 }
 async function loadPolicies(epoch) {
@@ -78,7 +118,7 @@ async function logs(signal) {
             const data = frame.split('\n').find(line => line.startsWith('data: '));
             if (!data) continue;
             const event = JSON.parse(data.slice(6));
-            $('logs').append(element('li', JSON.stringify(event)));
+            $('logs').append(logRow(event));
             while ($('logs').children.length > logLimit) $('logs').firstElementChild.remove();
             if ($('follow').checked) $('logs').scrollTop = $('logs').scrollHeight;
           }
@@ -118,4 +158,13 @@ $('policy-form').addEventListener('submit', async event => {
   finally { $('save').disabled = false; }
 });
 window.addEventListener('pagehide', () => { generation++; clearTimeout(pollTimer); streamController?.abort(); });
+const PAGES = ['overview', 'endpoints', 'routes', 'logs', 'policies'];
+function route() {
+  const name = (location.hash.replace(/^#\/?/, '') || 'overview').toLowerCase();
+  const page = PAGES.includes(name) ? name : 'overview';
+  document.body.dataset.page = page;
+  for (const link of document.querySelectorAll('nav a')) link.classList.toggle('active', link.dataset.page === page);
+}
+window.addEventListener('hashchange', route);
+route();
 connect();
