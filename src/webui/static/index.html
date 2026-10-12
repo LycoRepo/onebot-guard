@@ -80,8 +80,7 @@
           <label for="policy-yaml">当前策略 YAML</label>
           <textarea id="policy-yaml" readonly spellcheck="false" rows="22"></textarea>
           <div id="edit-controls" hidden>
-            <label for="write-token">写入 token</label>
-            <div class="inline"><input id="write-token" type="password" autocomplete="off" spellcheck="false"><button id="save" type="submit">校验并保存</button></div>
+            <div class="inline"><button id="save" type="submit">校验并保存</button><span class="muted">已登录即可保存；校验不通过不会落盘。</span></div>
           </div>
         </form>
         <p id="policy-result" role="status" aria-live="polite">策略尚未加载</p>

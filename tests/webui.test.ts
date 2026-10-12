@@ -61,7 +61,8 @@ test('WebUI config: defaults, binding, credentials, unknown keys, bounds and exa
   assert.deepEqual(validateConfig(old).webui, { enabled: false, host: '127.0.0.1', port: 3012, read_token_env: null, allow_policy_edit: false, write_token_env: null, log_ring_size: 200 });
   for (const [webui, pattern] of [
     [{ host: '0.0.0.0' }, /webui.read_token_env/],
-    [{ allow_policy_edit: true }, /webui.write_token_env/],
+    // 策略编辑改由登录会话授权：allow_policy_edit 不再强制要求写凭据环境变量。
+    [{ allow_policy_edit: true, write_token_env: 'not-an-env' }, /webui.write_token_env/],
     [{ token: 'TOKEN_PLACEHOLDER' }, /webui.token.*未知/],
     [{ read_token_env: 'not-an-env' }, /webui.read_token_env/],
     [{ write_token_env: 'not-an-env' }, /webui.write_token_env/],

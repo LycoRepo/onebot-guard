@@ -154,7 +154,7 @@ test('Login failure is uniform and secret-free; session cookie unlocks panel, st
   for (const value of [...Object.values(h.env), wrong, cookie.slice('guard_session='.length)]) assert.equal(h.audit.join('').includes(value), false);
 });
 
-test('Sessions evict by creation age, expire at TTL, rotate on login and cannot substitute for write credentials', async t => {
+test('Sessions evict by creation age, expire at TTL, rotate on login and authorize policy writes', async t => {
   const h = await fixture(t, { max_sessions: 2, session_ttl_minutes: 5 });
   const first = await h.loggedIn(); const second = await h.loggedIn();
   assert.equal((await h.get('/api/state', first)).status, 200);
@@ -162,10 +162,12 @@ test('Sessions evict by creation age, expire at TTL, rotate on login and cannot 
   assert.equal((await h.get('/api/state', first)).status, 401);
   assert.equal((await h.get('/api/state', second)).status, 200);
   assert.equal((await h.get('/api/state', third)).status, 200);
-  const original = await readFile(h.path);
-  assert.equal((await h.put(third)).status, 401); assert.deepEqual(await readFile(h.path), original);
-  assert.equal((await h.put(third, h.env.READ_TOKEN)).status, 401);
-  assert.equal((await h.put(third, h.env.WRITE_TOKEN)).status, 200);
+  // 登录会话即可保存策略；写凭据只是给脚本的可选通道，两者都没有才拒绝且不动文件。
+  assert.equal((await h.put(third)).status, 200);
+  assert.equal((await h.put(third, h.env.READ_TOKEN)).status, 200);
+  assert.equal((await h.put(undefined, h.env.WRITE_TOKEN)).status, 200);
+  const before = await readFile(h.path);
+  assert.equal((await h.put(undefined)).status, 401); assert.deepEqual(await readFile(h.path), before);
   const rotated = await h.post('/api/login', { token: h.env.READ_TOKEN }, { Cookie: third }); assert.equal(rotated.status, 204);
   assert.notEqual(rotated.headers.get('set-cookie')!.split(';')[0], third);
   assert.equal((await h.get('/api/state', third)).status, 401);

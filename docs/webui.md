@@ -31,11 +31,11 @@ cookie 格式为 `guard_session=<随机 ID>; HttpOnly; SameSite=Strict; Path=/; 
 
 登录失败按 socket 来源 IP 计数，忽略 X-Forwarded-For 等代理头。`login_attempts_per_min` 默认 10，范围 0..1000，0 关闭；达到失败上限后的请求返回 429，窗口为第一次失败起 60 秒。成功登录不清除当前窗口已累计的失败。来源表最多 1024 项，过期清理，满时淘汰最旧来源；代理后的浏览器共享代理 IP 的额度。此内存限流不承诺抵御分布式攻击。
 
-有副作用的 login/logout/PUT 请求必须使用 `Content-Type: application/json`（允许 charset 参数），否则 415。有 Origin 时必须等于当前 HTTP Host 的同源 Origin，否则 403；不信任 Forwarded/X-Forwarded-*，不开放 CORS。无 Origin 的脚本登录仍须提供正确的 body token，写入仍须提供写 Bearer。登出按工单明确要求保持未登录 204：没有有效会话时仅清空客户端 cookie，没有服务器会话副作用。HTTPS 反向代理须在验证外部同源后把上游 Origin 与上游 HTTP Host 配成一致；不要任意放行外部 Origin。
+有副作用的 login/logout/PUT 请求必须使用 `Content-Type: application/json`（允许 charset 参数），否则 415。有 Origin 时必须等于当前 HTTP Host 的同源 Origin，否则 403；不信任 Forwarded/X-Forwarded-*，不开放 CORS。无 Origin 的脚本登录仍须提供正确的 body token；脚本写策略需要会话 cookie 或可选的写凭据。登出按工单明确要求保持未登录 204：没有有效会话时仅清空客户端 cookie，没有服务器会话副作用。HTTPS 反向代理须在验证外部同源后把上游 Origin 与上游 HTTP Host 配成一致；不要任意放行外部 Origin。
 
-未声明 `read_token_env` 时保持回环边界模式，登录端点为 404，面板和读取无需会话；非回环缺少该声明仍校验失败。已声明但环境变量为空时启动失败，不降级为免认证。写接口始终独立要求 `Authorization: Bearer <WRITE_TOKEN>`，cookie 不能替代它；关闭编辑时 PUT 始终为 404。使用 SHA-256 定长摘要和 timingSafeEqual 比较凭据。
+写接口由登录会话授权，可选的写凭据仅供脚本调用；关闭编辑时 PUT 始终为 404。使用 SHA-256 定长摘要和 timingSafeEqual 比较凭据。
 
-面板保留总览、端点、路由、状态表、规则命中、传输问题、日志和策略区，每三秒刷新状态，策略文本不自动覆盖未保存编辑。读取 token 输入已移到登录页，不再保存在 sessionStorage；面板显示登录状态和登出按钮。fetch 和 SSE 使用同源 cookie；写 token 使用 password 输入，只存当前标签页 sessionStorage，通过 Bearer 保存策略，登出清除。面板严格 CSP 保持第二批原值，动态文本使用 textContent、编辑区使用 value。无 CDN、框架、打包器或构建步骤。
+面板保留总览、端点、路由、状态表、规则命中、传输问题、日志和策略区，每三秒刷新状态，策略文本不自动覆盖未保存编辑。读取 token 输入已移到登录页，不再保存在 sessionStorage；面板显示登录状态和登出按钮。fetch 和 SSE 使用同源 cookie；保存策略直接用登录会话，不再需要单独输入写凭据。面板严格 CSP 保持第二批原值，动态文本使用 textContent、编辑区使用 value。无 CDN、框架、打包器或构建步骤。
 
 ## 策略写入与失败
 

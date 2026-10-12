@@ -39,7 +39,7 @@ export class WebUI {
     this.sessions = new Sessions(config.webui, now);
     if (config.webui.enabled) {
       if (config.webui.read_token_env) this.readToken = credential(env, config.webui.read_token_env);
-      if (config.webui.allow_policy_edit) this.writeToken = credential(env, config.webui.write_token_env!);
+      if (config.webui.allow_policy_edit && config.webui.write_token_env) this.writeToken = credential(env, config.webui.write_token_env);
     }
   }
   state() {
@@ -137,8 +137,9 @@ export class WebUI {
     const session = sessionCookie(req.headers.cookie);
     const hasSession = this.sessions.valid(session);
     const canRead = hasSession || this.readToken === undefined || authorized(req.headers.authorization, this.readToken);
-    if (writing && (!this.writeToken || !authorized(req.headers.authorization, this.writeToken))) {
-      this.json(res, 401, { ok: false, error: '认证失败，请提供对应的 Bearer 凭据' }); return;
+    // 策略编辑：登录会话即可写；另外保留了可选写凭据，供脚本/命令行调 API。
+    if (writing && !hasSession && !(this.writeToken && authorized(req.headers.authorization, this.writeToken))) {
+      this.json(res, 401, { ok: false, error: '认证失败，请先登录' }); return;
     }
     if (!writing && !login && !logout && !canRead && path !== '/') {
       this.json(res, 401, { ok: false, error: '认证失败，请先登录' }); return;

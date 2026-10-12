@@ -108,7 +108,7 @@ export function validateConfig(v: unknown): Config {
     ...(w.login_attempts_per_min === undefined ? {} : { login_attempts_per_min: num(w.login_attempts_per_min, 'webui.login_attempts_per_min', 10, 0, 1000) }),
   };
   if (!['127.0.0.1', '::1'].includes(webui.host) && !webui.read_token_env) fail('webui.read_token_env', 'webui.host 非回环时必须声明读取凭据环境变量');
-  if (webui.allow_policy_edit && !webui.write_token_env) fail('webui.write_token_env', '开启策略编辑时必须声明写入凭据环境变量');
+  // 策略编辑由登录会话授权；write_token_env 只是给脚本/命令行调 API 的可选凭据。
   const r = object(o.runtime ?? {}, 'runtime', ['max_connections', 'max_buffer_bytes_per_connection', 'on_buffer_full', 'max_message_bytes', 'max_pending_requests', 'request_timeout_ms', 'max_regex_input_chars', 'max_state_entries', 'ping_interval_ms', 'handshake_timeout_ms', 'reconnect']);
   const rc = object(r.reconnect ?? {}, 'runtime.reconnect', ['initial_ms', 'max_ms', 'jitter']);
   const reload = object(o.reload ?? {}, 'reload', ['policy_watch', 'debounce_ms', 'signal', 'on_invalid']);

@@ -28,7 +28,7 @@ webui:
   port: 3012
   read_token_env: null      # 可选的读取凭据环境变量名；不填明文 token
   allow_policy_edit: false  # 只允许编辑 policies；关闭时 PUT 接口不存在
-  write_token_env: null     # 开启编辑时必填，使用独立的写入凭据环境变量
+  write_token_env: null     # 可选：脚本/命令行调 API 用的写入凭据（面板登录会话即可编辑）
   log_ring_size: 200        # SSE 元数据环形缓冲，范围 1..10000
   session_ttl_minutes: 720 # 会话固定有效期，默认 720（12 小时），范围 5..43200
   max_sessions: 64         # 内存会话上限，默认 64，范围 1..1024；满时淘汰最旧

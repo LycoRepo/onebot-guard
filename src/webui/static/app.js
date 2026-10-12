@@ -1,7 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let writeToken = '';
-try { sessionStorage.removeItem('guard-read-token'); writeToken = sessionStorage.getItem('guard-write-token') || ''; } catch { /* Session storage may be disabled. */ }
+try { sessionStorage.removeItem('guard-read-token'); sessionStorage.removeItem('guard-write-token'); } catch { /* Session storage may be disabled. */ }
 let streamController;
 let pollTimer;
 let logLimit = 200;
@@ -140,7 +139,6 @@ $('logout').addEventListener('click', async () => {
   try {
     const response = await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     if (!response.ok) throw new Error('登出失败，请重试');
-    writeToken = ''; $('write-token').value = '';
     try { sessionStorage.removeItem('guard-write-token'); } catch { /* Already absent. */ }
     location.replace('/');
   } catch (error) { $('error').textContent = error.message; }
@@ -148,11 +146,8 @@ $('logout').addEventListener('click', async () => {
 $('policy-form').addEventListener('submit', async event => {
   event.preventDefault(); if ($('edit-controls').hidden) return;
   $('save').disabled = true; $('policy-result').textContent = '正在校验并保存…'; $('policy-result').classList.remove('failed');
-  if ($('write-token').value) writeToken = $('write-token').value;
-  const token = writeToken; $('write-token').value = '';
-  try { sessionStorage.setItem('guard-write-token', token); } catch { /* Keep in memory only. */ }
   try {
-    const result = await api('/api/policies', { method: 'PUT', headers: { ...headers(token), 'Content-Type': 'application/json' }, body: JSON.stringify({ policies: $('policy-yaml').value }) });
+    const result = await api('/api/policies', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ policies: $('policy-yaml').value }) });
     $('policy-result').textContent = `保存成功 · ${result.reload.reason}`; reload(result.reload);
   } catch (error) { $('policy-result').textContent = error.message; $('policy-result').classList.add('failed'); }
   finally { $('save').disabled = false; }
