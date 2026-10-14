@@ -143,6 +143,17 @@ td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 /* ── 表单 / 按钮 ── */
 label { display: block; margin-bottom: 8px; font-size: 14px; }
 input, textarea, button { font: inherit; }
+select { font: inherit; }
+.config-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin: 12px; min-width: 0; }
+.config-card legend { color: var(--fg-dim); overflow-wrap: anywhere; }
+.config-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: end; }
+.config-fields input:not([type=checkbox]), .config-fields select {
+  display: block; width: 100%; margin-top: 6px; padding: 9px; border: 1px solid var(--line);
+  border-radius: 8px; color: var(--fg); background: var(--panel);
+}
+.config-fields label { overflow-wrap: anywhere; }
+#config-controls { position: sticky; bottom: 12px; margin-top: 20px; }
+#config-result { overflow-wrap: anywhere; }
 .inline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 input[type=password] {
   flex: 1; min-width: 160px; max-width: 420px; border: 1px solid var(--line); border-radius: 8px;

@@ -8,6 +8,10 @@ let allowEdit = false;
 let rulesPolicy = null;
 let rulesRegex = [];
 let generation = 0;
+let configDraft = null;
+let configBusy = false;
+let restarting = false;
+let configLoaded = false;
 const yes = value => value ? '是' : '否';
 const time = value => value ? new Date(value).toLocaleString() : '暂无';
 function element(tag, text) { const node = document.createElement(tag); node.textContent = String(text); return node; }
@@ -143,7 +147,7 @@ function logRow(event) {
 }
 function headers(token) { return token ? { Authorization: `Bearer ${token}` } : {}; }
 function checkSession(response) {
-  if (response.status === 401) { generation++; clearTimeout(pollTimer); streamController?.abort(); location.replace('/'); throw new Error('请重新登录'); }
+  if (response.status === 401 && !restarting) { generation++; clearTimeout(pollTimer); streamController?.abort(); location.replace('/'); throw new Error('请重新登录'); }
 }
 async function api(path, options = {}) {
   const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin', ...options });
@@ -156,6 +160,7 @@ function reload(result) { $('reload-status').textContent = result ? `${time(resu
 function render(state) {
   $('connection').className = 'pill'; $('connection').textContent = '面板已连接';
   pairs($('overview'), [['网关健康', state.healthy ? '健康' : '等待端点就绪'], ['启动时间', time(state.started_at)], ['最后事件', time(state.last_event_at)], ['允许', state.totals.allowed], ['拒绝', state.totals.denied]]);
+  if (!configDraft) {
   const sides = { upstream: [], downstream: [] };
   for (const [name, endpoint] of Object.entries(state.endpoints)) sides[endpoint.side === 'upstream' ? 'upstream' : 'downstream'].push([name, endpoint]);
   for (const [side, target] of [['upstream', 'endpoints-upstream'], ['downstream', 'endpoints-downstream']]) {
@@ -168,11 +173,19 @@ function render(state) {
     row.append(cell(route.id, 'mono'), cell(yes(route.upstream_ready), route.upstream_ready ? 'ok' : ''), cell(yes(route.downstream_ready), route.downstream_ready ? 'ok' : ''), cell(yes(route.ready), route.ready ? 'ok' : ''), cell(route.pending_requests));
     return row;
   }));
+  } else {
+    for (const [id, e] of Object.entries(state.endpoints)) {
+      const target = document.getElementById(`endpoint-state-${id}`);
+      if (target) target.textContent = `运行状态：连接 ${yes(e.connected)} · 就绪 ${yes(e.ready)} · 缓冲 ${e.buffered_bytes} B · 重连 ${e.reconnect_attempts}`;
+    }
+  }
   pairs($('queues'), Object.entries(state.queues), 'queues');
   pairs($('rules'), Object.entries(state.hits_by_rule), 'rules'); pairs($('issues'), Object.entries(state.transport_issues), 'issues');
   if (!Object.keys(state.hits_by_rule).length) pairs($('rules'), [['还没有命中任何规则', '—']]);
   if (!Object.keys(state.transport_issues).length) pairs($('issues'), [['没有传输问题', '—']]);
+  const previousEdit = allowEdit;
   allowEdit = state.allow_policy_edit === true;
+  if (configDraft && previousEdit !== allowEdit) renderConfig();
   logLimit = state.log_ring_size; reload(state.reload);
 }
 async function poll(epoch) {
@@ -226,7 +239,7 @@ async function logs(signal) {
 }
 function connect() {
   generation++; clearTimeout(pollTimer); streamController?.abort();
-  streamController = new AbortController(); void poll(generation); void loadPolicies(generation); void loadRules(generation); void logs(streamController.signal);
+  streamController = new AbortController(); void poll(generation); void loadPolicies(generation); void loadRules(generation); void loadConfig(generation); void logs(streamController.signal);
 }
 $('logout').addEventListener('click', async () => {
   try {
@@ -277,12 +290,123 @@ $('rules-form').addEventListener('submit', async event => {
   } catch (error) { $('rules-result').textContent = error.message; $('rules-result').classList.add('failed'); }
   finally { $('rules-save').disabled = false; }
 });
-window.addEventListener('pagehide', () => { generation++; clearTimeout(pollTimer); streamController?.abort(); });
+function configField(parent, label, value, change, choices, type = 'text') {
+  const wrap = element('label', label);
+  const input = document.createElement(choices ? 'select' : 'input');
+  if (choices) for (const [key, text] of choices) { const option = element('option', text); option.value = key; input.append(option); }
+  else input.type = type;
+  if (type === 'checkbox') input.checked = value === true;
+  else input.value = value ?? '';
+  input.addEventListener('change', () => change(type === 'checkbox' ? input.checked : type === 'number' ? Number(input.value) : input.value));
+  wrap.append(input); parent.append(wrap); return wrap;
+}
+function renderConfig() {
+  for (const side of ['upstream', 'downstream']) {
+    const cards = Object.entries(configDraft.endpoints).filter(([, e]) => e.side === side).map(([id, e]) => {
+      const card = document.createElement('fieldset'); card.className = 'config-card'; card.disabled = !allowEdit || configBusy;
+      card.append(element('legend', `${id} · ${e.protocol} · ${e.used ? '已被路由使用' : '未使用'}`));
+      const status = element('p', '等待运行状态'); status.id = `endpoint-state-${id}`; status.className = 'muted'; card.append(status);
+      const fields = document.createElement('div'); fields.className = 'config-fields'; card.append(fields);
+      configField(fields, '连接方式', e.connection, value => {
+        e.connection = value;
+        if (value === 'connect') { delete e.host; delete e.port; e.url = 'ws://example.invalid'; }
+        else { delete e.url; e.host = '127.0.0.1'; e.port = 3010; }
+        renderConfig();
+      }, [['connect', 'connect · 网关拨出'], ['listen', 'listen · 等待连入']]);
+      if (e.connection === 'connect') configField(fields, 'url', e.url, value => { e.url = value; });
+      else {
+        configField(fields, 'host', e.host, value => { e.host = value; });
+        configField(fields, 'port', e.port, value => { e.port = value; }, null, 'number');
+      }
+      configField(fields, 'token_env · 环境变量名，不能填写 token', e.token_env, value => { e.token_env = value; });
+      if (side === 'upstream') {
+        configField(fields, 'expected_self_id', e.expected_self_id, value => { e.expected_self_id = value; });
+        configField(fields, 'reconnect · 自动重连', e.reconnect, value => { e.reconnect = value; }, null, 'checkbox');
+      } else {
+        configField(fields, 'principal · 应用主体', e.principal, value => { e.principal = value; });
+        configField(fields, 'readonly · 只读', e.readonly, value => { e.readonly = value; }, null, 'checkbox');
+      }
+      return card;
+    });
+    $(`endpoints-${side}`).replaceChildren(...cards);
+  }
+  $('route-runtime').hidden = true;
+  const routes = configDraft.routes.map((r, index) => {
+    const row = document.createElement('fieldset'); row.className = 'config-card config-fields'; row.disabled = !allowEdit || configBusy;
+    configField(row, '路由 ID', r.id, value => { r.id = value; });
+    for (const key of ['upstream', 'downstream', 'policy']) {
+      const names = key === 'policy' ? configDraft.policies : Object.keys(configDraft.endpoints).filter(id => configDraft.endpoints[id].side === key);
+      configField(row, key, r[key], value => { r[key] = value; }, names.map(id => [id, id]));
+    }
+    const remove = element('button', '删除路由'); remove.type = 'button';
+    remove.addEventListener('click', () => { configDraft.routes.splice(index, 1); renderConfig(); }); row.append(remove); return row;
+  });
+  $('route-editor').replaceChildren(...routes);
+  $('route-add').hidden = !allowEdit; $('route-add').disabled = configBusy;
+  $('config-save').disabled = !allowEdit || configBusy || !configLoaded;
+  $('config-restart').disabled = !allowEdit || configBusy || !configLoaded;
+}
+async function loadConfig(epoch) {
+  try {
+    const response = await fetch('/api/config', { cache: 'no-store', credentials: 'same-origin' });
+    if (response.status === 401) throw new Error('端点与路由编辑需要登录会话；请配置读取凭据后登录。');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (epoch !== generation) return;
+    configDraft = data; configLoaded = true;
+    renderConfig(); $('config-result').textContent = allowEdit ? '端点与路由改动重启后生效' : '只读模式';
+  } catch (error) { if (epoch === generation) $('config-result').textContent = error.message; }
+}
+$('route-add').addEventListener('click', () => {
+  if (!configDraft || !allowEdit || configBusy) return;
+  const names = side => Object.keys(configDraft.endpoints).filter(id => configDraft.endpoints[id].side === side);
+  configDraft.routes.push({ id: '', upstream: names('upstream')[0] ?? '', downstream: names('downstream')[0] ?? '', policy: configDraft.policies[0] ?? '' });
+  renderConfig();
+});
+async function waitForRestart(startedAt) {
+  generation++; clearTimeout(pollTimer); streamController?.abort();
+  $('connection').textContent = '网关正在重启…';
+  $('config-result').textContent = '网关正在重启…端点与路由改动重启后生效';
+  while (restarting) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const response = await fetch('/api/state', { cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.timeout(3000) });
+      // A stale session is rejected by the new process. Also detect changed instance start time.
+      if (response.status !== 401 && !(response.ok && (await response.json()).started_at !== startedAt)) continue;
+      $('connection').textContent = '网关已重启，请重新登录';
+      $('config-result').textContent = '网关已重启，请重新登录';
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      location.replace('/'); return;
+    } catch { /* Instance is still stopping or starting. */ }
+  }
+}
+async function saveConfig(restart) {
+  if (!configDraft || !configLoaded || !allowEdit || configBusy) return;
+  configBusy = true; renderConfig();
+  $('config-result').classList.remove('failed'); $('config-result').textContent = '正在校验并保存…';
+  try {
+    const state = restart ? await api('/api/state') : null;
+    const endpoints = Object.fromEntries(Object.entries(configDraft.endpoints).map(([id, e]) => {
+      const { id: _id, used: _used, ...definition } = e; return [id, definition];
+    }));
+    if (restart) restarting = true;
+    let result;
+    try { result = await api('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoints, routes: configDraft.routes, restart }) }); }
+    catch (error) { restarting = false; throw error; }
+    $('config-result').textContent = result.message;
+    if (restart) { void waitForRestart(state.started_at); }
+  } catch (error) { $('config-result').textContent = error.message; $('config-result').classList.add('failed'); }
+  finally { if (!restarting) { configBusy = false; renderConfig(); } }
+}
+$('config-save').addEventListener('click', () => { void saveConfig(false); });
+$('config-restart').addEventListener('click', () => { void saveConfig(true); });
+window.addEventListener('pagehide', () => { restarting = false; generation++; clearTimeout(pollTimer); streamController?.abort(); });
 const PAGES = ['overview', 'endpoints', 'routes', 'rules', 'logs', 'policies'];
 function route() {
   const name = (location.hash.replace(/^#\/?/, '') || 'overview').toLowerCase();
   const page = PAGES.includes(name) ? name : 'overview';
   document.body.dataset.page = page;
+  $('config-controls').hidden = !['endpoints', 'routes'].includes(page);
   for (const link of document.querySelectorAll('nav a')) link.classList.toggle('active', link.dataset.page === page);
 }
 window.addEventListener('hashchange', route);

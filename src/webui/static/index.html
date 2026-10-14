@@ -56,7 +56,9 @@
 
       <section class="page" id="page-routes" aria-labelledby="routes-title">
         <div class="phead"><h1 id="routes-title">路由</h1><span class="sub">一条路由 = 一个上游账号 × 一个下游应用</span></div>
-        <div class="card table-wrap">
+        <div id="route-editor" class="card form-block"></div>
+        <button id="route-add" type="button" hidden>添加路由</button>
+        <div id="route-runtime" class="card table-wrap">
           <table>
             <thead><tr><th scope="col">路由</th><th scope="col">上游就绪</th><th scope="col">下游就绪</th><th scope="col">可用</th><th scope="col">待回包</th></tr></thead>
             <tbody id="routes"></tbody>
@@ -116,6 +118,14 @@
         </form>
         <p id="policy-result" role="status" aria-live="polite">策略尚未加载</p>
       </section>
+      <div id="config-controls" class="card form-block" hidden>
+        <p class="muted">端点与路由共用一份草稿。保存不会热重载，改动重启后生效；保存并重启后需重新登录。</p>
+        <div class="inline">
+          <button id="config-save" type="button" disabled>保存</button>
+          <button id="config-restart" type="button" disabled>保存并重启</button>
+          <span id="config-result" role="status" aria-live="polite">配置尚未加载</span>
+        </div>
+      </div>
     </main>
   </div>
 </body>

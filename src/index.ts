@@ -7,7 +7,7 @@ import { Gateway } from './route/index.ts';
 import { WebUI } from './webui/index.ts';
 import { redactor } from './webui/security.ts';
 
-export async function startGateway(path: string, env: NodeJS.ProcessEnv = process.env, write?: (line: string) => void): Promise<{
+export async function startGateway(path: string, env: NodeJS.ProcessEnv = process.env, write?: (line: string) => void, restart?: () => void): Promise<{
   gateway: Gateway; observation: Observability; reloader: PolicyReloader; webui: WebUI; stop(): Promise<void>;
 }> {
   const config = loadConfig(path);
@@ -17,7 +17,7 @@ export async function startGateway(path: string, env: NodeJS.ProcessEnv = proces
     observation.log(success ? 'info' : 'error', success ? 'policy_reload_success' : 'policy_reload_failure', { reason });
     if (observation.events.capacity) observation.events.publish({ time: new Date().toISOString(), event: 'reload', ok: success, reason });
   }, redactor(config, env));
-  const webui = new WebUI(config, () => gateway.snapshot(), observation, reloader, path, env);
+  const webui = new WebUI(config, () => gateway.snapshot(), observation, reloader, path, env, Date.now, restart);
   let stopping: Promise<void> | undefined;
   const stop = (): Promise<void> => {
     if (!stopping) {
@@ -50,7 +50,9 @@ export function installSignals(app: Awaited<ReturnType<typeof startGateway>>): (
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    const app = await startGateway(resolve(process.env.GATEWAY_CONFIG ?? 'config/gateway.yaml'));
+    const app = await startGateway(resolve(process.env.GATEWAY_CONFIG ?? 'config/gateway.yaml'), process.env, undefined, () => {
+      void app.stop().then(() => process.exit(0), () => process.exit(1));
+    });
     installSignals(app);
   } catch (error) {
     // Config/credential diagnostics never include packets, tokens, or filesystem paths.

@@ -13,6 +13,7 @@ import { PolicyError, PolicyFile } from './policies.ts';
 import { cookie, sessionCookie, Sessions } from './sessions.ts';
 import { parseRules, readRules, writeRules } from './rules.ts';
 import { stringify } from 'yaml';
+import { ConfigFile } from './config.ts';
 
 const MAX_BODY = 1048576;
 const MAX_STREAM_BUFFER = 65536;
@@ -28,6 +29,7 @@ export class WebUI {
   reloader: PolicyReloader;
   snapshot: Gateway['snapshot'];
   policies: PolicyFile;
+  configuration: ConfigFile;
   server: Server | undefined;
   private readToken: string | undefined;
   private writeToken: string | undefined;
@@ -35,9 +37,13 @@ export class WebUI {
   private streams = new Set<ServerResponse>();
   private sessionStreams = new Map<ServerResponse, string>();
   private sessions: Sessions;
-  constructor(config: Config, snapshot: Gateway['snapshot'], observation: Observability, reloader: PolicyReloader, path: string, env: NodeJS.ProcessEnv, now = Date.now) {
+  private restart: (() => void) | undefined;
+  private restartTimer: NodeJS.Timeout | undefined;
+  private restartPending = false;
+  constructor(config: Config, snapshot: Gateway['snapshot'], observation: Observability, reloader: PolicyReloader, path: string, env: NodeJS.ProcessEnv, now = Date.now, restart?: () => void) {
     this.config = config; this.snapshot = snapshot; this.observation = observation; this.reloader = reloader;
     this.policies = new PolicyFile(path, reloader); this.redact = redactor(config, env);
+    this.configuration = new ConfigFile(path); this.restart = restart;
     this.sessions = new Sessions(config.webui, now);
     if (config.webui.enabled) {
       if (config.webui.read_token_env) this.readToken = credential(env, config.webui.read_token_env);
@@ -75,16 +81,18 @@ export class WebUI {
     res.end(html);
   }
   private async body(req: IncomingMessage): Promise<string> {
-    if (Number(req.headers['content-length']) > MAX_BODY) throw new PolicyError('请求体超过 1 MiB 上限');
     const chunks: Buffer[] = []; let bytes = 0;
     // Do not destroy the request via async-iterator early return: the client must receive the 4xx.
     return await new Promise<string>((resolve, reject) => {
       req.on('data', (chunk: Buffer) => {
         bytes += chunk.length;
-        if (bytes > MAX_BODY) { chunks.length = 0; reject(new PolicyError('请求体超过 1 MiB 上限')); }
+        if (bytes > MAX_BODY) { chunks.length = 0; }
         else chunks.push(chunk);
       });
-      req.once('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.once('end', () => {
+        if (bytes > MAX_BODY) reject(new PolicyError('请求体超过 1 MiB 上限'));
+        else resolve(Buffer.concat(chunks).toString('utf8'));
+      });
       req.once('error', () => reject(new PolicyError('请求体读取失败')));
       req.once('aborted', () => reject(new PolicyError('请求已断开')));
     });
@@ -125,21 +133,25 @@ export class WebUI {
     res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
     res.setHeader('Referrer-Policy', 'no-referrer');
     const path = new URL(req.url ?? '/', 'http://internal').pathname;
-    const writing = req.method === 'PUT' && (path === '/api/policies' || path === '/api/rules');
+    const writing = req.method === 'PUT' && ['/api/policies', '/api/rules', '/api/config'].includes(path);
     const login = req.method === 'POST' && path === '/api/login';
     const logout = req.method === 'POST' && path === '/api/logout';
     if (writing && !this.config.webui.allow_policy_edit) { this.json(res, 404, { ok: false, error: '写接口未启用' }); return; }
     if (login && !this.config.webui.read_token_env) { this.json(res, 404, { ok: false, error: '登录未启用' }); return; }
     if ((['/api/login', '/api/logout'].includes(path) && req.method !== 'POST') || (req.method !== 'GET' && !writing && !login && !logout)) {
-      const editable = (path === '/api/policies' || path === '/api/rules') && this.config.webui.allow_policy_edit;
+      const editable = ['/api/policies', '/api/rules', '/api/config'].includes(path) && this.config.webui.allow_policy_edit;
       res.setHeader('Allow', ['/api/login', '/api/logout'].includes(path) ? 'POST' : editable ? 'GET, PUT' : 'GET');
       this.json(res, 405, { ok: false, error: '不支持此方法' }); return;
     }
     const asset = assets.get(path);
-    if (!asset && !login && !logout && !['/api/state', '/api/policies', '/api/rules', '/api/logs'].includes(path)) { this.json(res, 404, { ok: false, error: '接口不存在' }); return; }
+    if (!asset && !login && !logout && !['/api/state', '/api/policies', '/api/rules', '/api/logs', '/api/config'].includes(path)) { this.json(res, 404, { ok: false, error: '接口不存在' }); return; }
     const session = sessionCookie(req.headers.cookie);
     const hasSession = this.sessions.valid(session);
     const canRead = hasSession || this.readToken === undefined || authorized(req.headers.authorization, this.readToken);
+    if (path === '/api/config' && !hasSession) { this.json(res, 401, { ok: false, error: '认证失败，请先登录' }); return; }
+    if (path === '/api/config' && req.headers.origin !== undefined && req.headers.origin !== `http://${req.headers.host}`) {
+      this.json(res, 403, { ok: false, error: '不允许跨源请求' }); return;
+    }
     // 策略编辑：登录会话即可写；另外保留了可选写凭据，供脚本/命令行调 API。
     if (writing && !hasSession && !(this.writeToken && authorized(req.headers.authorization, this.writeToken))) {
       this.json(res, 401, { ok: false, error: '认证失败，请先登录' }); return;
@@ -183,6 +195,7 @@ export class WebUI {
       }
       if (path === '/api/state') { this.json(res, 200, this.state()); return; }
       if (path === '/api/logs') { this.stream(res, hasSession ? session : undefined); return; }
+      if (path === '/api/config' && !writing) { this.json(res, 200, this.configuration.get()); return; }
       if (path === '/api/rules' && !writing) {
         const parsed = this.policies.get().parsed as Record<string, Policy>;
         const names = Object.keys(parsed);
@@ -198,6 +211,23 @@ export class WebUI {
       const raw = await this.body(req);
       let body: unknown;
       try { body = JSON.parse(raw); } catch { throw new PolicyError('请求体必须是有效 JSON'); }
+      if (path === '/api/config') {
+        if (this.restartPending) throw new PolicyError('网关正在重启，请稍后重新登录');
+        if (body && typeof body === 'object' && 'restart' in body && body.restart === true && !this.restart) {
+          throw new PolicyError('重启钩子未配置，请保存后手动重启');
+        }
+        const restart = this.configuration.save(body);
+        if (restart) {
+          this.restartPending = true;
+          // finish fires only after the response has been handed to the socket.
+          res.once('finish', () => {
+            this.restartTimer = setTimeout(() => { this.restartTimer = undefined; this.restart?.(); }, 200);
+          });
+        }
+        this.json(res, restart ? 202 : 200, { ok: true, restart, restart_required: true,
+          message: restart ? '已保存，正在重启；端点与路由改动重启后生效' : '改动已保存，端点与路由重启后生效' });
+        return;
+      }
       if (path === '/api/rules') {
         if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PolicyError('请求体必须是对象');
         const { policy: wanted, rules } = body as { policy?: unknown; rules?: unknown };
@@ -232,6 +262,7 @@ export class WebUI {
   }
   address(): AddressInfo | undefined { const a = this.server?.address(); return a && typeof a !== 'string' ? a : undefined; }
   async stop(): Promise<void> {
+    clearTimeout(this.restartTimer);
     this.sessions.clear();
     for (const stream of this.streams) stream.destroy();
     if (!this.server) return;

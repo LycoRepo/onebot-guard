@@ -15,6 +15,8 @@ WebUI 默认关闭；启用后默认在回环地址的 3012 端口监听。它�
 | GET | `/api/state` | 健康、启动/最后事件时间、端点、路由两端就绪、待回包、状态表规模、计数、规则命中、传输问题、策略名称、最近重载；读认证 |
 | GET | `/api/policies` | `{ yaml, parsed, reload, allow_policy_edit }`；yaml 是文件中 policies 值的 YAML 表示，parsed 是对应映射；读认证 |
 | PUT | `/api/policies` | 仅编辑开启时存在；始终要求写认证 |
+| GET | `/api/config`（允许查询串） | 文件中的端点、路由与策略名称；必须有有效登录会话 |
+| PUT | `/api/config` | 编辑开启时可保存端点/路由；必须有有效登录会话；可请求重启 |
 | GET | `/api/logs` | SSE 最近事件回放与实时推送；读认证 |
 
 `reload` 在尚未重载时为 null，其后为 `{ ok, reason, time }`；包含文件监听、信号和页面保存触发的结果。策略 GET 读的是文件内容，运行策略名来自重载器；如果宿主手工修改了无效配置，旧内存策略继续运行，错误原因显示在重载结果中。策略 GET 也会先全量校验当前文件，无效时返回 400，避免回显外部误写的明文凭据字段。
@@ -65,6 +67,45 @@ cookie 格式为 `guard_session=<随机 ID>; HttpOnly; SameSite=Strict; Path=/; 
 
 WebUI 最多 16 个 HTTP 连接，请求体和配置文件各最多 1 MiB。SSE 回放通常最多 32 KiB（单条大记录可占用更大的剩余预算），响应缓冲上限 64 KiB；写入返回背压或超出预算时立即断开，不累计发送队列。断开和服务停止清理订阅与保活计时器，前端日志 DOM 也按 log_ring_size 淘汰最旧记录。WebUI 关闭时缓冲容量为零。
 
+## 端点、路由保存与重启
+
+端点页保留上游/下游布局，编辑连接方式及对应的地址、环境变量名、账号或主体、重连/只读选项。connect 只显示 url，listen 只显示 host/port；上游不显示主体/只读，下游不显示账号。`token_env` 填环境变量名，例如 `ENDPOINT_TOKEN`，不是凭据值。环境变量需要由部署方预先注入；保存校验不会读取新变量的值，缺失凭据会导致重启后的启动失败。
+
+路由页可增删路由、编辑 ID，并从端点与策略名称列表选择上游、下游和策略。至少保留一条路由，每个下游只能绑定一条路由，全部端点必须被路由引用；服务端 `validateConfig` 是唯一校验权威。端点页与路由页共用一份草稿和底部操作条，三秒状态轮询不会覆盖草稿。关闭编辑时表单只读。没有登录会话的回环/Bearer 面板仍显示运行状态，但配置编辑不可用；启用读取凭据并登录后才能编辑。
+
+`GET /api/config` 从磁盘读取并全量校验，返回：
+
+```json
+{
+  "endpoints": {
+    "up": {"id":"up","side":"upstream","connection":"connect","protocol":"onebot_v11","url":"ws://example.invalid","token_env":"UPSTREAM_TOKEN","expected_self_id":"ACCOUNT_A","reconnect":true,"used":true},
+    "down": {"id":"down","side":"downstream","connection":"listen","protocol":"onebot_v11","host":"127.0.0.1","port":3010,"token_env":"DOWNSTREAM_TOKEN","principal":"APP_A","readonly":false,"reconnect":true,"used":true}
+  },
+  "routes": [{"id":"routeA","upstream":"up","downstream":"down","policy":"main"}],
+  "policies": ["main"]
+}
+```
+
+端点是 ID 到定义的映射；`used` 表示文件中的路由是否引用该端点。只返回当前连接方式与 side 对应的字段，不返回环境变量取值、TLS 字段、文件路径、策略内容或其它配置段。文件内容无效时返回 400，不回显无效文件。这里读的是已保存配置，`/api/state` 仍代表运行实例，保存未重启时两者可能不同。
+
+`PUT /api/config` 的 JSON 体恰好包含三个必填字段：
+
+```json
+{"endpoints":{"up":{"side":"upstream","connection":"connect","protocol":"onebot_v11","url":"ws://example.invalid","token_env":"UPSTREAM_TOKEN","expected_self_id":"ACCOUNT_A","reconnect":true},"down":{"side":"downstream","connection":"listen","protocol":"onebot_v11","host":"127.0.0.1","port":3010,"token_env":"DOWNSTREAM_TOKEN","principal":"APP_A","readonly":false,"reconnect":true}},"routes":[{"id":"routeA","upstream":"up","downstream":"down","policy":"main"}],"restart":false}
+```
+
+请求端点定义不包含 GET 的 `id`/`used` 展示字段。先把 endpoints/routes 合并到当前磁盘文档，调用完整 `validateConfig`；通过后用 YAML Document 的 range 切片，只替换两个顶层值，同目录临时文件 rename 原子落盘。两个值之外的注释、换行、缩进与配置字节原样保留。任何校验拒绝和临时文件写入/rename 失败都不改变原文件，不改变运行内存；不热重载端点/路由。
+
+保存成功返回 200 `{"ok":true,"restart":false,"restart_required":true,"message":"改动已保存，端点与路由重启后生效"}`。保存并重启返回 202 `{"ok":true,"restart":true,"restart_required":true,"message":"已保存，正在重启；端点与路由改动重启后生效"}`。仅在响应 finish 后延迟 200 ms 调用注入的钩子；生产 CLI 先复用幂等 `stop()` 关闭监听、会话、SSE、网关和观测服务，再退出 0，由容器 `restart: unless-stopped` 启动新实例。直接在宿主运行 CLI 时退出后需要外部进程管理器或手动启动。
+
+WebUI 的重启钩子默认 undefined，嵌入式 `startGateway` 也默认不注入；此时 `restart:true` 返回 400，文件不动，可改用保存后手动重启。重启已安排时重复配置 PUT 返回 400，避免重复调用或覆盖待生效文件。测试只注入记录钩子，绝不退出测试进程。本批不新增、修改或移除 TLS 配置；GET 不展示 TLS，已有 TLS 字段未原样提交的写入会被拒绝，避免面板静默删除证书配置。
+
+新接口 GET/PUT 均要求登录会话，无会话（包括只带 Bearer）返回 401。PUT 在 `allow_policy_edit:false` 时优先返回 404，文件不变；GET 仍可只读。GET/PUT 有 Origin 时均严格检查同源，不同源返回 403。PUT 必须 `application/json`，否则 415；不支持的方法返回 405，开启编辑时 Allow 为 GET, PUT。请求体/配置文件最多 1 MiB；坏 JSON、形状、未知键、字段值、引用或原子写入失败返回 400 `{ok:false,error}`，页面显示服务端原因。
+
+操作顺序：登录 → 编辑端点及路由 → 点击「保存」或「保存并重启」。提交中禁用表单与按钮。「保存」后仍用旧端点/路由，必须随后重启；未重启前策略保存或文件监听仍会按原有规则拒绝结构漂移，保留旧策略，不能用策略重载代替重启。需要先完成策略编辑再保存端点，或者重启后再编辑策略。
+
+「保存并重启」响应成功后页面显示“网关正在重启…”，停止普通状态轮询和 SSE 重连，单独轮询实例。新实例不保留旧内存会话；发现旧会话 401（或实例启动时间已改变）后显示“网关已重启，请重新登录”，随后进入 `/` 登录页。重新登录后重建 SSE；重启会断开旧 SSE 且丢弃旧内存日志环，不承诺恢复停机期间日志。实例未回来时持续显示等待，不假报成功。
+
 ## 范围
 
-只编辑 policies；不能改端点、账号、端口、凭据变量名或其它运行参数，没有重启按钮、用户体系、历史指标、导出和持久化日志。本批不接真实协议端，协议行为仍以模拟端测试覆盖。HTTP 服务自身不提供 TLS，跨机部署的加密与访问限制由部署方配置。
+可以编辑 policies、现有端点的连接配置与路由；其它运行参数不在面板编辑范围。没有端点增删界面、用户体系、历史指标、导出和持久化日志。本批不接真实协议端，协议行为仍以模拟端测试覆盖。HTTP 服务自身不提供 TLS，跨机部署的加密与访问限制由部署方配置。
