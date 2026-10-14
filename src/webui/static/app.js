@@ -375,7 +375,8 @@ async function waitForRestart(startedAt) {
       if (response.status !== 401 && !(response.ok && (await response.json()).started_at !== startedAt)) continue;
       $('connection').textContent = '网关已重启，请重新登录';
       $('config-result').textContent = '网关已重启，请重新登录';
-      await new Promise(resolve => setTimeout(resolve, 1200));
+      // Leave the notice on screen long enough to read before leaving the panel.
+      await new Promise(resolve => setTimeout(resolve, 1800));
       location.replace('/'); return;
     } catch { /* Instance is still stopping or starting. */ }
   }

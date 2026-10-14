@@ -181,16 +181,17 @@ test('TLS is excluded from GET and unsupported additions or silent removal are r
   assert.equal((await h.put(h.body())).status, 400); assert.deepEqual(await readFile(h.path), existing);
 });
 
-test('Native panel forms switch exclusive fields, submit shared drafts, show server errors and wait for restarted session before login navigation', async t => {
+test('Native panel forms submit shared drafts and keep restart notice readable for at least 1.5 seconds before login navigation', async t => {
   const h = await fixture(t); const fresh = await fixture(t);
-  const nodes = new Map<string, any>(); const messages: string[] = []; const destinations: string[] = []; const requests: any[] = [];
+  const nodes = new Map<string, any>(); const destinations: string[] = []; const requests: any[] = [];
+  let navigatedAt = 0;
   class Node {
     children: any[] = []; listeners: Record<string, (...args: any[]) => any> = {};
     value = ''; checked = false; disabled = false; hidden = false; className = ''; type = ''; tag: string; text = '';
     classList = { add() {}, remove() {}, toggle() {} };
     constructor(tag: string) { this.tag = tag; }
     set id(id: string) { nodes.set(id, this); }
-    set textContent(text: string) { this.text = String(text); if (nodes.get('config-result') === this) messages.push(this.text); }
+    set textContent(text: string) { this.text = String(text); }
     get textContent() { return this.text; }
     append(...children: any[]) { this.children.push(...children); }
     replaceChildren(...children: any[]) { this.children = children; }
@@ -199,8 +200,9 @@ test('Native panel forms switch exclusive fields, submit shared drafts, show ser
   const getNode = (id: string): any => { if (!nodes.has(id)) nodes.set(id, new Node('div')); return nodes.get(id); };
   const context = createContext({
     document: { getElementById: getNode, createElement: (tag: string) => new Node(tag), createTextNode: (text: string) => ({ text }), querySelectorAll: () => [], body: { dataset: {} } },
-    window: { addEventListener() {} }, sessionStorage: { removeItem() {} }, location: { hash: '#/endpoints', replace: (url: string) => destinations.push(url) },
-    setTimeout: (fn: () => void, delay: number) => setTimeout(fn, Math.min(delay, 10)), clearTimeout, AbortController, AbortSignal,
+    window: { addEventListener() {} }, sessionStorage: { removeItem() {} }, location: { hash: '#/endpoints', replace: (url: string) => { navigatedAt = performance.now(); destinations.push(url); } },
+    // Real timers: accelerating this wait would hide an unreadably short notice.
+    setTimeout, clearTimeout, AbortController, AbortSignal,
     fetch: async (path: string, options: RequestInit = {}) => {
       requests.push({ path, options });
       const base = path === '/api/state' && h.counts().restarts ? fresh.url : h.url;
@@ -231,6 +233,23 @@ test('Native panel forms switch exclusive fields, submit shared drafts, show ser
   getNode('route-editor').children[2].children.at(-1).listeners.click(); assert.equal(getNode('route-editor').children.length, 2);
   await runInContext('configDraft.endpoints.downA.port = 42002; saveConfig(true)', context);
   assert.deepEqual(destinations, []); assert.match(getNode('connection').textContent, /正在重启/);
+  const notice = '网关已重启，请重新登录';
+  await waitFor(() => getNode('connection').textContent === notice, 4000);
+  const visibleSince = performance.now();
+  const assertReadableBeforeNavigation = () => {
+    assert.deepEqual(destinations, [], 'the panel must stay open while the notice is readable');
+    assert.equal(getNode('connection').textContent, notice);
+    assert.equal(getNode('connection').hidden, false);
+    assert.equal(getNode('config-result').textContent, notice);
+    assert.equal(getNode('config-result').hidden, false);
+    assert.equal(getNode('config-controls').hidden, false);
+  };
+  while (performance.now() - visibleSince < 1500) {
+    assertReadableBeforeNavigation();
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assertReadableBeforeNavigation();
   await waitFor(() => destinations.length === 1);
-  assert.deepEqual(destinations, ['/']); assert.ok(messages.includes('网关已重启，请重新登录')); assert.equal(h.counts().restarts, 1);
+  assert.ok(navigatedAt - visibleSince >= 1500, 'notice must remain readable for at least 1.5 seconds');
+  assert.deepEqual(destinations, ['/']); assert.equal(h.counts().restarts, 1);
 });
