@@ -3,7 +3,7 @@
   --bg: #0e1014; --panel: #151922; --panel-2: #1b2029; --line: #252b37; --line-soft: #1e232d;
   --fg: #e7ebf3; --fg-dim: #98a2b3; --fg-faint: #6b7484;
   --accent: #4c8dff; --ok: #3ddc97; --warn: #ffb454; --bad: #ff6b6b; --mono: #8ab4ff;
-  --radius: 12px; --space: 16px; --page-width: 1320px; color-scheme: dark;
+  --radius: 12px; --space: 16px; --page-width: 1320px; --nav-inset: 12px; color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root {
@@ -29,12 +29,12 @@ aside {
   background: var(--panel-2); border-right: 1px solid var(--line);
   padding: 20px 12px; display: flex; flex-direction: column; gap: 4px;
 }
-.brand { padding: 0 10px 16px; border-bottom: 1px solid var(--line-soft); margin-bottom: 12px; }
+.brand { padding: 0 var(--nav-inset) 16px; border-bottom: 1px solid var(--line-soft); margin-bottom: 12px; }
 .brand b { display: block; font-size: 15px; }
 .brand span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-faint); }
 nav { display: flex; flex-direction: column; gap: 3px; }
 nav a {
-  display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 9px;
+  display: flex; align-items: center; gap: 9px; padding: 9px calc(var(--nav-inset) - 1px); border-radius: 9px;
   color: var(--fg-dim); text-decoration: none; font-size: 13.5px; border: 1px solid transparent;
 }
 nav a:hover { background: var(--panel); color: var(--fg); }
@@ -80,8 +80,8 @@ body[data-page="policies"] #page-policies { display: block; }
 .cards > div { padding: var(--space); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
 .cards > div dt { font-size: 12px; color: var(--fg-faint); }
 .cards > div dd { margin: 3px 0 0; font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-#overview > div { height: 108px; display: flex; flex-direction: column; justify-content: space-between; }
-#overview dd { max-width: 100%; font-size: 17px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#overview > div { height: 88px; padding: 12px var(--space); display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+#overview dd { margin: 0; max-width: 100%; font-size: 17px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #overview > div:nth-child(2) dd, #overview > div:nth-child(3) dd {
   font-size: 13px; white-space: normal; overflow-wrap: anywhere; max-height: 2.7em;
 }
@@ -159,9 +159,16 @@ select { font: inherit; }
   border-radius: 8px; color: var(--fg); background: var(--panel);
 }
 .config-fields label { overflow-wrap: anywhere; min-width: 0; margin: 0; }
+.ep-list .config-fields > label {
+  display: grid; grid-template-rows: subgrid; grid-row: span 4; row-gap: 0; align-self: stretch;
+}
+.ep-list .field-key { grid-row: 2; }
+.ep-list .config-fields .hint { grid-row: 3; }
+.ep-list .config-fields input, .ep-list .config-fields select { grid-row: 4; align-self: start; }
 .field-key { display: block; color: var(--fg-faint); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin-top: 2px; }
 .config-fields .hint { display: block; margin-top: 4px; }
 .config-check input { display: block; margin: 12px 0 9px; }
+.ep-list .config-check input { margin: 6px 0 0; }
 #config-controls {
   position: sticky; top: 12px; z-index: 10; max-width: var(--page-width); margin: 0 auto var(--space);
   padding: var(--space); box-shadow: 0 4px 16px #0002;

@@ -212,7 +212,7 @@ async function loadPolicies(epoch) {
     const data = await api('/api/policies'); if (epoch !== generation) return;
     $('policy-yaml').value = data.yaml; $('policy-yaml').readOnly = !data.allow_policy_edit;
     $('edit-controls').hidden = !data.allow_policy_edit;
-    $('policy-result').textContent = data.allow_policy_edit ? '可编辑；保存后立即重载策略。' : '只读模式';
+    $('policy-result').textContent = data.allow_policy_edit ? '可编辑' : '只读模式';
     reload(data.reload);
   } catch (error) { if (epoch === generation) $('policy-result').textContent = error.message; }
 }
@@ -325,7 +325,7 @@ function renderConfig() {
       card.append(element('legend', `${id} · ${e.protocol} · ${e.used ? '已被路由使用' : '未使用'}`));
       const status = element('p', '正在读取运行状态，连接情况会自动更新。'); status.id = `endpoint-state-${id}`; status.className = 'muted'; card.append(status);
       const fields = document.createElement('div'); fields.className = 'config-fields'; card.append(fields);
-      configField(fields, '连接方式', e.connection, value => {
+      configField(fields, 'connection', e.connection, value => {
         e.connection = value;
         if (value === 'connect') { delete e.host; delete e.port; e.url = 'ws://example.invalid'; }
         else { delete e.url; e.host = '127.0.0.1'; e.port = 3010; }

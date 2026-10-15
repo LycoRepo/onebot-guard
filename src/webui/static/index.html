@@ -86,9 +86,9 @@
           <div class="card form-block">
             <h2 class="card-title">收消息 <span class="hint">上游的什么消息能进来</span></h2>
             <label for="rules-groups">接收群白名单 <span class="hint">一行一个群号；留空时所有群都放行。</span></label>
-            <textarea id="rules-groups" rows="3" placeholder="GROUP_ALLOWED"></textarea>
+            <textarea id="rules-groups" rows="3" placeholder="RECV_GROUP_ALLOWED"></textarea>
             <label for="rules-users">接收私聊白名单 <span class="hint">一行一个 QQ 号；留空时所有人都放行。</span></label>
-            <textarea id="rules-users" rows="3" placeholder="USER_ALLOWED"></textarea>
+            <textarea id="rules-users" rows="3" placeholder="RECV_USER_ALLOWED"></textarea>
             <label>拦下这些消息类型 <span class="hint">包含勾选类型的消息会被整条拦下。</span></label>
             <div class="checks" id="rules-blocked"></div>
             <label for="rules-keywords">关键词黑名单 <span class="hint">一行一个关键词；消息中出现时整条拦下。</span></label>
@@ -97,9 +97,9 @@
           <div class="card form-block">
             <h2 class="card-title">发消息 <span class="hint">下游能发给谁</span></h2>
             <label for="rules-send-groups">发送群白名单 <span class="hint">留空时发往任何群的消息都会被拦下。</span></label>
-            <textarea id="rules-send-groups" rows="3" placeholder="GROUP_ALLOWED"></textarea>
+            <textarea id="rules-send-groups" rows="3" placeholder="SEND_GROUP_ALLOWED"></textarea>
             <label for="rules-send-users">发送私聊白名单 <span class="hint">留空时发给任何人的消息都会被拦下。</span></label>
-            <textarea id="rules-send-users" rows="3" placeholder="USER_ALLOWED"></textarea>
+            <textarea id="rules-send-users" rows="3" placeholder="SEND_USER_ALLOWED"></textarea>
             <label>放行这些发送类型 <span class="hint">未勾选的类型会被拦下。</span></label>
             <div class="checks" id="rules-send-types"></div>
           </div>

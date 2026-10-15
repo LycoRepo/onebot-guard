@@ -217,6 +217,8 @@ test('Native panel forms submit shared drafts and keep restart notice readable f
   assert.equal(getNode('config-controls').hidden, false); assert.equal(getNode('config-save').disabled, false);
   const fields = () => getNode('endpoints-upstream').children[0].children[2];
   const fieldNames = () => fields().children.map((n: any) => n.text);
+  assert.equal(fields().children[0].text, '连接方式');
+  assert.equal(fields().children[0].children[0].text, 'connection');
   assert.ok(fieldNames().includes('监听地址')); assert.ok(!fieldNames().includes('连接地址')); assert.ok(!fieldNames().includes('下游主体'));
   let connection = fields().children[0].children.at(-1); connection.value = 'connect'; connection.listeners.change();
   assert.ok(fieldNames().includes('连接地址')); assert.ok(!fieldNames().includes('监听地址')); assert.ok(!fieldNames().includes('监听端口'));

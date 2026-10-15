@@ -5,7 +5,7 @@ import { createContext, runInContext } from 'node:vm';
 
 const script = (await readFile(new URL('../src/webui/static/app.js', import.meta.url), 'utf8')).replace(/connect\(\);\s*$/, '');
 
-function panel() {
+function panel(fetch?: typeof globalThis.fetch) {
   class Node {
     children: Node[] = [];
     text = ''; className = ''; title = ''; value = ''; type = ''; hidden = false;
@@ -24,7 +24,7 @@ function panel() {
   const get = (id: string) => { if (!nodes.has(id)) nodes.set(id, new Node('div')); return nodes.get(id)!; };
   const context = createContext({
     document: { getElementById: get, createElement: (tag: string) => new Node(tag), querySelectorAll: () => [], body: { dataset: {} } },
-    window: { addEventListener() {} }, sessionStorage: { removeItem() {} }, location: { hash: '#/overview' },
+    window: { addEventListener() {} }, sessionStorage: { removeItem() {} }, location: { hash: '#/overview' }, fetch,
   });
   runInContext(script, context);
   return { get, run: (code: string) => runInContext(code, context) };
@@ -72,4 +72,14 @@ test('Log sources use the shared glossary while backend reasons and unknown code
   run(`reload({ time: null, ok: false, reason: 'BACKEND_REASON_UNCHANGED' })`);
   assert.match(get('reload-status').textContent, /BACKEND_REASON_UNCHANGED$/);
   assert.match(run(`logRow({ event: 'reload', ok: false, reason: 'BACKEND_REASON_UNCHANGED' }).textContent`), /BACKEND_REASON_UNCHANGED$/);
+});
+
+test('Loaded YAML status shows only editability in both editable and read-only modes', async () => {
+  for (const editable of [true, false]) {
+    const { get, run } = panel(async () => new Response(JSON.stringify({ yaml: 'POLICY_ALLOWED: {}', allow_policy_edit: editable, reload: null })));
+    await run('loadPolicies(generation)');
+    assert.equal(get('policy-result').textContent, editable ? '可编辑' : '只读模式');
+    assert.equal(get('edit-controls').hidden, !editable);
+    assert.equal(get('policy-yaml').value, 'POLICY_ALLOWED: {}');
+  }
 });
