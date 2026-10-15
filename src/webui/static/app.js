@@ -12,6 +12,32 @@ let configDraft = null;
 let configBusy = false;
 let restarting = false;
 let configLoaded = false;
+let savedConfig = null;
+let runtimeState = null;
+let pendingRestart = false;
+let endpointSearch = '';
+let draftError = '';
+const endpointOpen = new Set();
+const newEndpointIds = new Set();
+const newForms = { upstream: false, downstream: false };
+const pendingDelete = new Map();
+const draft = {
+  id: '', connection: 'connect', url: '', host: '127.0.0.1', port: '', token_env: '',
+  expected_self_id: '', principal: '', readonly: false, reconnect: true,
+  route: { id: '', upstream: '', downstream: '', policy: '' },
+};
+function resetDraft(side) {
+  draftError = '';
+  draft.id = '';
+  draft.connection = side === 'upstream' ? 'connect' : 'listen';
+  draft.url = ''; draft.host = '127.0.0.1'; draft.port = ''; draft.token_env = '';
+  draft.expected_self_id = ''; draft.principal = ''; draft.readonly = false; draft.reconnect = true;
+  const freeDownstream = sideIds('downstream').filter(id => !draftRoutes().some(route => route.downstream === id));
+  draft.route = {
+    id: '', upstream: sideIds('upstream')[0] ?? '', downstream: freeDownstream[0] ?? '',
+    policy: (configDraft ? configDraft.policies : [])[0] ?? '',
+  };
+}
 const ready = value => value ? '已就绪' : '未就绪';
 const connected = value => value ? '已连接' : '未连接';
 const time = value => value ? new Date(value).toLocaleString() : '暂无';
@@ -129,19 +155,23 @@ function timeOf(value) {
   return Number.isNaN(date.getTime()) ? String(value ?? '') : date.toLocaleTimeString('zh-CN', { hour12: false });
 }
 function pair(label, value, cls) { const cell = document.createElement('span'); const strong = span('', value); if (cls) strong.className = cls; cell.append(element('i', label), strong); return cell; }
-function endpointCard(name, endpoint) {
-  const row = document.createElement('div'); row.className = 'ep';
+function runtimeOnlyRow(name, endpoint) {
+  const row = document.createElement('article'); row.className = 'endpoint-card';
+  const summary = document.createElement('div'); summary.className = 'endpoint-summary';
   const who = document.createElement('div'); who.className = 'who';
   who.append(element('div', name), element('div', `${endpoint.side === 'upstream' ? '上游' : '下游'} · ${endpoint.onebot}`));
   who.lastChild.className = 'role'; who.firstChild.className = 'name';
   const tag = span('tag', endpoint.connection === 'connect' ? '网关拨出' : '等待连入');
-  const meta = span('meta', '');
+  const meta = span('meta', ''); meta.id = `endpoint-state-${name}`;
   meta.append(
     pair('状态', `${connected(endpoint.connected)} · ${ready(endpoint.ready)}`, endpoint.ready ? 'ok' : ''),
     pair('缓冲', `${endpoint.buffered_bytes} B`),
     pair('重连', endpoint.reconnect_attempts),
   );
-  row.append(who, tag, meta); return row;
+  summary.append(who, tag, meta);
+  const hint = element('p', '这里只显示运行状态：配置尚未读取或不可编辑。'); hint.className = 'muted';
+  row.append(summary, hint);
+  return row;
 }
 function logRow(event) {
   const kind = String(event.event ?? '');
@@ -172,25 +202,31 @@ async function api(path, options = {}) {
 }
 function reload(result) { $('reload-status').textContent = result ? `${time(result.time)} · ${result.ok ? '重载成功' : '重载失败'} · ${result.reason}` : '尚未重载'; }
 function render(state) {
+  runtimeState = state;
   $('connection').className = 'pill'; $('connection').textContent = '面板已连接';
   pairs($('overview'), [['网关状态', ready(state.healthy)], ['启动时间', time(state.started_at)], ['最后事件', time(state.last_event_at)], ['放行', state.totals.allowed], ['拦下', state.totals.denied]]);
-  if (!configDraft) {
-  const sides = { upstream: [], downstream: [] };
-  for (const [name, endpoint] of Object.entries(state.endpoints)) sides[endpoint.side === 'upstream' ? 'upstream' : 'downstream'].push([name, endpoint]);
-  for (const [side, target] of [['upstream', 'endpoints-upstream'], ['downstream', 'endpoints-downstream']]) {
-    const rows = sides[side].map(([name, endpoint]) => endpointCard(name, endpoint));
-    $(target).replaceChildren(...(rows.length ? rows : [Object.assign(document.createElement('p'), { className: 'muted empty', textContent: '这一侧没有配置端点' })]));
-  }
   $('routes').replaceChildren(...state.routes.map(route => {
     const cell = (text, cls) => { const td = element('td', text); if (cls) td.className = cls; return td; };
     const row = document.createElement('tr');
     row.append(cell(route.id, 'mono'), cell(ready(route.upstream_ready), route.upstream_ready ? 'ok' : ''), cell(ready(route.downstream_ready), route.downstream_ready ? 'ok' : ''), cell(ready(route.ready), route.ready ? 'ok' : ''), cell(route.pending_requests));
     return row;
   }));
+  if (!configDraft) {
+    const sides = { upstream: [], downstream: [] };
+    for (const [name, endpoint] of Object.entries(state.endpoints)) sides[endpoint.side === 'upstream' ? 'upstream' : 'downstream'].push([name, endpoint]);
+    for (const [side, target] of [['upstream', 'endpoints-upstream'], ['downstream', 'endpoints-downstream']]) {
+      const rows = sides[side].map(([name, endpoint]) => runtimeOnlyRow(name, endpoint));
+      $(target).replaceChildren(...(rows.length ? rows : [Object.assign(document.createElement('p'), { className: 'muted empty', textContent: '这一侧没有配置端点' })]));
+      const count = $(`endpoint-count-${side}`); if (count) count.textContent = sides[side].length;
+      const zone = $(`zone-count-${side}`); if (zone) zone.textContent = `${sides[side].length} 个`;
+    }
   } else {
-    for (const [id, e] of Object.entries(state.endpoints)) {
-      const target = document.getElementById(`endpoint-state-${id}`);
-      if (target) target.textContent = `运行状态：${connected(e.connected)} · ${ready(e.ready)} · 缓冲 ${e.buffered_bytes} B · 重连 ${e.reconnect_attempts}`;
+    for (const id of Object.keys(draftEndpoints())) {
+      const target = document.getElementById(`endpoint-state-${id}`); if (!target) continue;
+      const live = state.endpoints[id];
+      if (live) target.textContent = `当前运行：${connected(live.connected)} · ${ready(live.ready)} · 发送缓冲 ${live.buffered_bytes} B · 重连 ${live.reconnect_attempts}（改动重启后才生效）`;
+      else if (newEndpointIds.has(id)) target.textContent = '尚未运行：保存并重启后才会创建这个连接。';
+      else target.textContent = '当前实例里没有这个端点：可能刚被移除，或改动重启后才生效。';
     }
   }
   pairs($('queues'), Object.entries(state.queues), 'queues');
@@ -318,51 +354,378 @@ function configField(parent, label, value, change, choices, type = 'text') {
   input.addEventListener('change', () => change(type === 'checkbox' ? input.checked : type === 'number' ? Number(input.value) : input.value));
   wrap.append(input); parent.append(wrap); return wrap;
 }
-function renderConfig() {
-  for (const side of ['upstream', 'downstream']) {
-    const cards = Object.entries(configDraft.endpoints).filter(([, e]) => e.side === side).map(([id, e]) => {
-      const card = document.createElement('fieldset'); card.className = 'config-card'; card.disabled = !allowEdit || configBusy;
-      card.append(element('legend', `${id} · ${e.protocol} · ${e.used ? '已被路由使用' : '未使用'}`));
-      const status = element('p', '正在读取运行状态，连接情况会自动更新。'); status.id = `endpoint-state-${id}`; status.className = 'muted'; card.append(status);
-      const fields = document.createElement('div'); fields.className = 'config-fields'; card.append(fields);
-      configField(fields, 'connection', e.connection, value => {
-        e.connection = value;
-        if (value === 'connect') { delete e.host; delete e.port; e.url = 'ws://example.invalid'; }
-        else { delete e.url; e.host = '127.0.0.1'; e.port = 3010; }
-        renderConfig();
-      }, [['connect', '网关拨出'], ['listen', '等待连入']]);
-      if (e.connection === 'connect') configField(fields, 'url', e.url, value => { e.url = value; });
-      else {
-        configField(fields, 'host', e.host, value => { e.host = value; });
-        configField(fields, 'port', e.port, value => { e.port = value; }, null, 'number');
-      }
-      configField(fields, 'token_env', e.token_env, value => { e.token_env = value; });
-      if (side === 'upstream') {
-        configField(fields, 'expected_self_id', e.expected_self_id, value => { e.expected_self_id = value; });
-        configField(fields, 'reconnect', e.reconnect, value => { e.reconnect = value; }, null, 'checkbox');
-      } else {
-        configField(fields, 'principal', e.principal, value => { e.principal = value; });
-        configField(fields, 'readonly', e.readonly, value => { e.readonly = value; }, null, 'checkbox');
-      }
-      return card;
-    });
-    $(`endpoints-${side}`).replaceChildren(...cards);
+// ── 端点页：草稿模型、行式字段、增删端点 ──
+const FIELD_LABELS = {
+  connection: ['连接方式', 'connection'], url: ['连接地址', 'url'], host: ['监听地址', 'host'],
+  port: ['监听端口', 'port'], token_env: ['凭据环境变量', 'token_env'], expected_self_id: ['上游账号', 'expected_self_id'],
+  principal: ['下游主体', 'principal'], readonly: ['只读模式', 'readonly'], reconnect: ['自动重连', 'reconnect'],
+};
+const FIELD_HELP = {
+  url: 'WebSocket 地址（ws:// 或 wss://）；不要带用户名、密码、查询串或片段。',
+  host: '本机监听的地址，默认 127.0.0.1。',
+  port: '0–65535 的整数；填 0 表示由系统自动分配端口。',
+  token_env: '填写环境变量名，不要填写凭据值。请先在部署环境设置此变量；保存只校验名称，不验证变量值是否存在。',
+  expected_self_id: '上游账号；与协议端实际上报不一致时会被断开。',
+  principal: '下游应用的身份名；不会从上游账号自动复制。',
+  readonly: '只读下游不能发送消息；不影响面板里的编辑。',
+  reconnect: '断开后自动尝试重新连接。',
+};
+const CONNECTION_CHOICES = [['connect', '网关拨出（connect）'], ['listen', '等待连入（listen）']];
+const clone = value => JSON.parse(JSON.stringify(value));
+const draftEndpoints = () => (configDraft ? configDraft.endpoints : {});
+const draftRoutes = () => (configDraft ? configDraft.routes : []);
+const routeRefs = id => draftRoutes().filter(route => route.upstream === id || route.downstream === id);
+const sideIds = side => Object.keys(draftEndpoints()).filter(id => draftEndpoints()[id].side === side);
+const busyEndpoint = id => (newEndpointIds.has(id) || pendingDelete.has(id)) && !allowEdit;
+const setAttributeIf = (node, name, value) => { if (typeof node.setAttribute === 'function') node.setAttribute(name, value); };
+const addListenerIf = (node, name, handler) => { if (typeof node.addEventListener === 'function') node.addEventListener(name, handler); };
+
+function formatValue(key, value) {
+  if (key === 'readonly') return value ? '开启' : '关闭';
+  return value === undefined || value === null || value === '' ? '—' : String(value);
+}
+function fieldRow(owner, key, value, onChange, options = {}) {
+  const meta = FIELD_LABELS[key] || [key, key];
+  const controlId = `cfg-${owner}-${key}`;
+  const row = document.createElement('div'); row.className = 'endpoint-field-row';
+  const label = element('label', options.label || meta[0]); label.className = 'field-label'; label.htmlFor = controlId;
+  label.append(span('field-key', options.key || meta[1]));
+  const control = document.createElement('div'); control.className = 'field-control';
+  const editable = allowEdit && !configBusy;
+  if (!editable && (key === 'readonly' || key === 'reconnect')) {
+    const readOnly = element('span', formatValue(key, value)); readOnly.className = 'field-value'; control.append(readOnly);
+  } else if (key === 'readonly' || key === 'reconnect') {
+    const wrap = document.createElement('label'); wrap.className = 'field-check';
+    const input = document.createElement('input'); input.type = 'checkbox'; input.id = controlId; input.checked = value === true;
+    addListenerIf(input, 'change', () => onChange(input.checked));
+    wrap.append(input, span('', key === 'readonly' ? '开启后该下游不能发送消息' : '断开后自动尝试重新连接'));
+    control.append(wrap);
+  } else if (options.choices) {
+    const input = document.createElement('select'); input.id = controlId;
+    for (const [choiceValue, text] of options.choices) { const option = element('option', text); option.value = choiceValue; input.append(option); }
+    input.value = value ?? '';
+    const commit = () => onChange(input.value);
+    addListenerIf(input, 'input', commit); addListenerIf(input, 'change', commit);
+    control.append(input);
+  } else {
+    const input = document.createElement('input'); input.id = controlId;
+    input.type = key === 'port' ? 'number' : 'text';
+    input.value = value ?? '';
+    const commit = () => onChange(input.type === 'number' ? Number(input.value) : input.value);
+    addListenerIf(input, 'input', commit); addListenerIf(input, 'change', commit);
+    control.append(input);
   }
-  $('route-runtime').hidden = true;
-  const routes = configDraft.routes.map((r, index) => {
-    const row = document.createElement('fieldset'); row.className = 'config-card config-fields'; row.disabled = !allowEdit || configBusy;
-    configField(row, '路由 ID', r.id, value => { r.id = value; });
-    for (const key of ['upstream', 'downstream', 'policy']) {
-      const names = key === 'policy' ? configDraft.policies : Object.keys(configDraft.endpoints).filter(id => configDraft.endpoints[id].side === key);
-      configField(row, key, r[key], value => { r[key] = value; }, names.map(id => [id, id]));
+  const help = options.help ?? FIELD_HELP[key];
+  if (help) { const helpNode = span('field-help', help); helpNode.id = `${controlId}-help`; control.append(helpNode); }
+  row.append(label, control);
+  return row;
+}
+function fieldGroup(legend, rows) {
+  const fieldset = document.createElement('fieldset'); fieldset.className = 'endpoint-config';
+  fieldset.append(element('legend', legend));
+  const list = document.createElement('div'); list.className = 'endpoint-field-rows';
+  list.append(...rows); fieldset.append(list);
+  return fieldset;
+}
+function endpointFlag(text, kind) { const node = span(`endpoint-flag ${kind}`, text); return node; }
+function endpointLine(label, value) {
+  const line = document.createElement('p'); line.className = 'endpoint-line';
+  line.append(element('b', label), span('', value)); return line;
+}
+function connectionSummary(endpoint) {
+  if (endpoint.connection === 'connect') return `网关拨出 · ${endpoint.url ?? ''}`;
+  return `等待连入 · ${endpoint.host ?? ''}:${endpoint.port ?? ''}`;
+}
+function actionsRow(id) {
+  const actions = document.createElement('div'); actions.className = 'endpoint-actions';
+  const toggle = element('button', endpointOpen.has(id) ? '收起配置' : '编辑配置');
+  toggle.type = 'button'; toggle.className = 'ghost';
+  toggle.setAttribute && toggle.setAttribute('aria-expanded', endpointOpen.has(id) ? 'true' : 'false');
+  addListenerIf(toggle, 'click', () => { if (endpointOpen.has(id)) endpointOpen.delete(id); else endpointOpen.add(id); renderConfig(); });
+  actions.append(toggle);
+  if (allowEdit) {
+    if (pendingDelete.has(id)) {
+      const undo = element('button', '撤销删除'); undo.type = 'button'; undo.className = 'ghost';
+      addListenerIf(undo, 'click', () => { pendingDelete.delete(id); renderConfig(); });
+      actions.append(undo);
+    } else {
+      const remove = element('button', '删除'); remove.type = 'button'; remove.className = 'ghost';
+      addListenerIf(remove, 'click', () => { openDeletePanel(id); });
+      actions.append(remove);
     }
-    const remove = element('button', '删除路由'); remove.type = 'button';
-    remove.addEventListener('click', () => { configDraft.routes.splice(index, 1); renderConfig(); }); row.append(remove); return row;
+  }
+  return actions;
+}
+function endpointLines(id, endpoint, flags) {
+  const lines = document.createElement('div'); lines.className = 'endpoint-lines';
+  const runtime = element('p', '正在读取运行状态，连接情况会自动更新。'); runtime.className = 'muted'; runtime.id = `endpoint-state-${id}`;
+  lines.append(runtime);
+  lines.append(endpointLine(flags.new ? '草稿配置（未保存）' : '草稿配置', connectionSummary(endpoint)));
+  const refs = routeRefs(id);
+  const names = refs.map(route => `${route.id || '(未命名路由)'}：${route.upstream} → ${route.downstream} · ${route.policy}`);
+  lines.append(endpointLine('草稿关联', names.length ? names.join('；') : '尚未关联路由，不能保存整份配置'));
+  return lines;
+}
+function endpointCard(id, endpoint, flags) {
+  const card = document.createElement('article'); card.className = 'endpoint-card';
+  if (pendingDelete.has(id)) card.className += ' pending-delete';
+  card.id = `endpoint-card-${id}`;
+  const summary = document.createElement('div'); summary.className = 'endpoint-summary';
+  const name = element('span', id); name.className = 'endpoint-id';
+  const proto = element('span', endpoint.protocol || 'onebot_v11'); proto.className = 'endpoint-proto';
+  summary.append(name, proto);
+  if (flags.new) summary.append(endpointFlag('新增 · 未保存', 'new'));
+  else if (flags.edited) summary.append(endpointFlag('已修改', 'edited'));
+  if (pendingDelete.has(id)) summary.append(endpointFlag('待删除', 'removed'));
+  summary.append(actionsRow(id));
+  card.append(summary, endpointLines(id, endpoint, flags));
+  const details = document.createElement('div'); details.className = 'endpoint-details';
+  details.hidden = !endpointOpen.has(id);
+  const connectionRows = [];
+  connectionRows.push(fieldRow(id, 'connection', endpoint.connection, value => {
+    if (value === 'connect') { endpoint.connection = 'connect'; delete endpoint.host; delete endpoint.port; if (!endpoint.url) endpoint.url = 'ws://example.invalid'; }
+    else { endpoint.connection = 'listen'; delete endpoint.url; if (!endpoint.host) endpoint.host = '127.0.0.1'; if (endpoint.port === undefined) endpoint.port = 0; }
+    touchDraft(); renderConfig();
+  }, { choices: CONNECTION_CHOICES }));
+  if (endpoint.connection === 'connect') connectionRows.push(fieldRow(id, 'url', endpoint.url, value => { endpoint.url = value; touchDraft(); }));
+  else {
+    connectionRows.push(fieldRow(id, 'host', endpoint.host, value => { endpoint.host = value; touchDraft(); }));
+    connectionRows.push(fieldRow(id, 'port', endpoint.port, value => { endpoint.port = value; touchDraft(); }));
+  }
+  const identityRows = [fieldRow(id, 'token_env', endpoint.token_env, value => { endpoint.token_env = value; touchDraft(); })];
+  if (endpoint.side === 'upstream') {
+    identityRows.push(fieldRow(id, 'expected_self_id', endpoint.expected_self_id, value => { endpoint.expected_self_id = value; touchDraft(); }));
+    identityRows.push(fieldRow(id, 'reconnect', endpoint.reconnect, value => { endpoint.reconnect = value; touchDraft(); }));
+  } else {
+    identityRows.push(fieldRow(id, 'principal', endpoint.principal, value => { endpoint.principal = value; touchDraft(); }));
+    identityRows.push(fieldRow(id, 'readonly', endpoint.readonly, value => { endpoint.readonly = value; touchDraft(); }));
+  }
+  if (endpoint.connection !== 'connect' && endpoint.side === 'upstream') {
+    const note = element('p', '监听类上游由对端发起重连，面板不提供自动重连开关。'); note.className = 'field-help';
+    identityRows.push(note);
+  }
+  details.append(fieldGroup('连接', connectionRows), fieldGroup('身份与访问', identityRows));
+  details.append(pendingDelete.has(id) ? deleteImpact(id) : routeLinks(id));
+  card.append(details);
+  return card;
+}
+function deleteImpact(id) {
+  const wrap = document.createElement('div'); wrap.className = 'endpoint-impact';
+  wrap.append(element('h3', `删除「${id}」的影响`));
+  const refs = routeRefs(id);
+  const list = document.createElement('ul'); list.className = 'impact-list';
+  if (refs.length) {
+    list.append(element('li', `引用它的路由 ${refs.length} 条：${refs.map(route => route.id || '(未命名路由)').join('、')}`));
+    const others = refs.map(route => (route.upstream === id ? route.downstream : route.upstream)).filter(other => other && other !== id);
+    if (others.length) list.append(element('li', `同一批路由的另一侧端点：${[...new Set(others)].join('、')}`));
+    list.append(element('li', '这些路由要一起删掉、或改指到别的端点；否则整份配置会因为引用了不存在的端点而被拒绝。'));
+    if (configDraft.routes.length === refs.length) list.append(element('li', '至少要保留一条路由：删完这些路由就无法保存，请先建立替代连接。'));
+  } else {
+    list.append(element('li', '目前没有任何路由引用它。'));
+  }
+  wrap.append(list);
+  const actions = document.createElement('div'); actions.className = 'form-actions';
+  if (refs.length) {
+    const alsoRoutes = element('button', `一并删除这些路由（${refs.length} 条）`); alsoRoutes.type = 'button';
+    addListenerIf(alsoRoutes, 'click', () => {
+      for (const route of refs) { const index = configDraft.routes.indexOf(route); if (index >= 0) configDraft.routes.splice(index, 1); }
+      touchDraft(); renderConfig();
+    });
+    actions.append(alsoRoutes);
+  }
+  const cancel = element('button', '取消删除'); cancel.type = 'button'; cancel.className = 'ghost';
+  addListenerIf(cancel, 'click', () => { pendingDelete.delete(id); renderConfig(); });
+  actions.append(cancel);
+  wrap.append(actions);
+  return wrap;
+}
+function routeLinks(id) {
+  const wrap = document.createElement('div'); wrap.className = 'endpoint-route-links';
+  wrap.append(element('h4', '关联路由'));
+  const refs = routeRefs(id);
+  if (!refs.length) {
+    wrap.append(element('p', '尚未关联路由，不能保存整份配置。可在路由页新建路由，或在下方新增表单里同时新建。'));
+  }
+  for (const route of refs) {
+    const line = document.createElement('p'); line.className = 'endpoint-line';
+    line.append(span('', `${route.id || '(未命名路由)'}：${route.upstream} → ${route.downstream} · ${route.policy}`));
+    wrap.append(line);
+  }
+  return wrap;
+}
+function renderEndpoints() {
+  const term = endpointSearch.trim().toLowerCase();
+  const groups = { upstream: [], downstream: [] };
+  const flagsFor = id => ({
+    new: newEndpointIds.has(id),
+    edited: Boolean(savedConfig && savedConfig.endpoints[id] && JSON.stringify(stripMeta(savedConfig.endpoints[id])) !== JSON.stringify(stripMeta(configDraft.endpoints[id]))),
+    removed: pendingDelete.has(id),
   });
-  $('route-editor').replaceChildren(...routes);
-  $('route-add').hidden = !allowEdit; $('route-add').disabled = configBusy;
+  for (const [id, endpoint] of Object.entries(draftEndpoints())) {
+    if (term) {
+      const haystack = [id, endpoint.url, endpoint.host, endpoint.port, endpoint.expected_self_id, endpoint.principal, endpoint.token_env].join(' ').toLowerCase();
+      if (!haystack.includes(term)) continue;
+    }
+    groups[endpoint.side === 'upstream' ? 'upstream' : 'downstream'].push(endpointCard(id, endpoint, flagsFor(id)));
+  }
+  for (const side of ['upstream', 'downstream']) {
+    const children = groups[side].slice();
+    if (allowEdit && newForms[side]) children.push(newEndpointForm(side));
+    if (!children.length) {
+      const empty = element('p', term ? '没有匹配的端点；清空搜索可看到全部。' : (side === 'upstream' ? '还没有上游端点，点右上角「新增上游」创建。' : '还没有下游端点，点右上角「新增下游」创建。'));
+      empty.className = 'muted empty'; children.push(empty);
+    }
+    $(`endpoints-${side}`).replaceChildren(...children);
+    $(`zone-count-${side}`).textContent = `${sideIds(side).length} 个`;
+    $(`endpoint-count-${side}`).textContent = sideIds(side).length;
+  }
+  for (const id of Object.keys(pendingDelete)) {
+    const endpoint = draftEndpoints()[id];
+    if (endpoint) continue;
+    const card = document.createElement('article'); card.className = 'endpoint-card pending-delete'; card.id = `endpoint-card-${id}`;
+    const summary = document.createElement('div'); summary.className = 'endpoint-summary';
+    summary.append(element('span', id), endpointFlag('已从草稿移除 · 当前实例仍在运行，重启后移除', 'removed'));
+    const undo = element('button', '撤销'); undo.type = 'button'; undo.className = 'ghost';
+    addListenerIf(undo, 'click', () => { pendingDelete.delete(id); renderConfig(); });
+    summary.append(undo);
+    card.append(summary); $(`endpoints-${pendingDelete.get(id).side === 'upstream' ? 'upstream' : 'downstream'}`).append(card);
+  }
+}
+function policyChoices() { return (configDraft ? configDraft.policies : []).map(name => [name, name]); }
+function newEndpointForm(side) {
+  const form = document.createElement('div'); form.className = 'endpoint-form';
+  form.append(element('h3', side === 'upstream' ? '新增上游端点' : '新增下游端点'));
+  const hint = element('p', '每个端点在保存时必须被路由引用；可同时新建一条路由，也可稍后到路由页关联。'); hint.className = 'muted';
+  form.append(hint);
+  const rows = [];
+  rows.push(fieldRow(`new-${side}`, 'id', draft.id, value => { draft.id = value; }, { label: '端点 ID', key: 'id', help: '必填且全局唯一：以字母开头，可含字母、数字、下划线或连字符，最长 64 字符。加入草稿后不再改动，避免破坏引用。' }));
+  rows.push(fieldRow(`new-${side}`, 'connection', draft.connection, value => { draft.connection = value; if (value === 'connect') { draft.host = ''; draft.port = ''; } else { draft.url = ''; } renderConfig(); }, { choices: CONNECTION_CHOICES }));
+  if (draft.connection === 'connect') rows.push(fieldRow(`new-${side}`, 'url', draft.url, value => { draft.url = value; }));
+  else {
+    rows.push(fieldRow(`new-${side}`, 'host', draft.host, value => { draft.host = value; }));
+    rows.push(fieldRow(`new-${side}`, 'port', draft.port, value => { draft.port = value; }));
+  }
+  rows.push(fieldRow(`new-${side}`, 'token_env', draft.token_env, value => { draft.token_env = value; }));
+  if (side === 'upstream') {
+    rows.push(fieldRow(`new-${side}`, 'expected_self_id', draft.expected_self_id, value => { draft.expected_self_id = value; }));
+    rows.push(fieldRow(`new-${side}`, 'reconnect', draft.reconnect, value => { draft.reconnect = value; }));
+  } else {
+    rows.push(fieldRow(`new-${side}`, 'principal', draft.principal, value => { draft.principal = value; }));
+    rows.push(fieldRow(`new-${side}`, 'readonly', draft.readonly, value => { draft.readonly = value; }));
+  }
+  form.append(fieldGroup('连接与身份', rows));
+  const linkRows = [];
+  const routeId = `${side === 'upstream' ? 'route' : 'route'}`;
+  linkRows.push(fieldRow(`new-${side}`, 'route', draft.route.id, value => { draft.route.id = value; }, { label: '路由名称', key: 'id', help: '必填且全局唯一；用于把两端连起来。' }));
+  if (side === 'upstream') {
+    const free = sideIds('downstream').filter(id => !draftRoutes().some(route => route.downstream === id));
+    linkRows.push(fieldRow(`new-${side}`, 'route', draft.route.downstream, value => { draft.route.downstream = value; }, { label: '下游端点', key: 'downstream', choices: free.map(id => [id, id]), help: free.length ? '只能选择还没有被其它路由占用的下游。' : '当前没有可用的下游端点：请先新增一个下游，再和这条路由一起提交。' }));
+  } else {
+    linkRows.push(fieldRow(`new-${side}`, 'route', draft.route.upstream, value => { draft.route.upstream = value; }, { label: '上游端点', key: 'upstream', choices: sideIds('upstream').map(id => [id, id]), help: '同一个上游可以被多条路由引用。' }));
+  }
+  const policies = policyChoices();
+  linkRows.push(fieldRow(`new-${side}`, 'route', draft.route.policy, value => { draft.route.policy = value; }, { label: '策略', key: 'policy', choices: policies, help: policies.length ? '策略来自已保存的配置。' : '当前没有可用策略，请先在高级 YAML 里配置策略。' }));
+  form.append(fieldGroup('路由关联', linkRows));
+  const actions = document.createElement('div'); actions.className = 'form-actions';
+  const withRoute = element('button', '加入配置草稿（并新建路由）'); withRoute.type = 'button';
+  addListenerIf(withRoute, 'click', () => { commitNewEndpoint(side, true); });
+  const alone = element('button', '仅加入草稿，稍后关联'); alone.type = 'button'; alone.className = 'ghost';
+  addListenerIf(alone, 'click', () => { commitNewEndpoint(side, false); });
+  const cancel = element('button', '取消'); cancel.type = 'button'; cancel.className = 'ghost';
+  addListenerIf(cancel, 'click', () => { delete newForms[side]; renderConfig(); });
+  actions.append(withRoute, alone, cancel);
+  form.append(actions);
+  if (draftError) { const error = element('p', draftError); error.className = 'field-error'; form.append(error); }
+  return form;
+}
+function idError(id) {
+  if (!id) return '端点 ID 必填。';
+  if (!/^[a-zA-Z][\w-]{0,63}$/.test(id)) return '端点 ID 必须以字母开头，只能包含字母、数字、下划线或连字符（最长 64 字符）。';
+  if (draftEndpoints()[id]) return `端点 ID「${id}」已存在。`;
+  return '';
+}
+function commitNewEndpoint(side, withRoute) {
+  const id = String(draft.id ?? '').trim();
+  const problem = idError(id);
+  if (problem) { draftError = problem; renderConfig(); return; }
+  const endpoint = { side, connection: draft.connection, protocol: 'onebot_v11', token_env: draft.token_env };
+  if (draft.connection === 'connect') endpoint.url = draft.url; else { endpoint.host = draft.host; endpoint.port = Number(draft.port); }
+  if (side === 'upstream') { endpoint.expected_self_id = draft.expected_self_id; if (draft.connection === 'connect') endpoint.reconnect = draft.reconnect; }
+  else { endpoint.principal = draft.principal; endpoint.readonly = draft.readonly; }
+  configDraft.endpoints[id] = endpoint;
+  newEndpointIds.add(id); endpointOpen.add(id);
+  if (withRoute) configDraft.routes.push({ id: draft.route.id, upstream: side === 'upstream' ? id : draft.route.upstream, downstream: side === 'downstream' ? id : draft.route.downstream, policy: draft.route.policy });
+  delete newForms[side]; draftError = ''; touchDraft(); renderConfig();
+}
+function openDeletePanel(id) {
+  const refs = routeRefs(id);
+  pendingDelete.set(id, { side: draftEndpoints()[id].side, routes: refs.map(route => route.id) });
+  renderConfig();
+}
+function stripMeta(endpoint) {
+  const { id: _id, used: _used, ...definition } = endpoint; return definition;
+}
+function configPayload() {
+  return {
+    endpoints: Object.fromEntries(Object.entries(configDraft.endpoints)
+      .filter(([id]) => !pendingDelete.has(id))
+      .map(([id, endpoint]) => [id, stripMeta(endpoint)])),
+    routes: configDraft.routes,
+  };
+}
+function normalized(value) { return JSON.stringify(value); }
+function changeSummary() {
+  if (!savedConfig || !configDraft) return null;
+  const before = Object.fromEntries(Object.entries(savedConfig.endpoints).map(([id, endpoint]) => [id, stripMeta(endpoint)]));
+  const after = configPayload().endpoints;
+  const added = Object.keys(after).filter(id => !before[id]);
+  const removed = Object.keys(before).filter(id => !after[id]);
+  const edited = Object.keys(after).filter(id => before[id] && normalized(before[id]) !== normalized(after[id]));
+  const routes = normalized(savedConfig.routes) !== normalized(configDraft.routes) ? configDraft.routes.length : 0;
+  const referenced = new Set(configDraft.routes.flatMap(route => [route.upstream, route.downstream]));
+  const unlinked = Object.keys(after).filter(id => !referenced.has(id));
+  return { added: added.length, removed: removed.length, edited: edited.length, routes, unlinked, addedIds: added, removedIds: removed };
+}
+function touchDraft() { renderDraftSummary(); }
+function renderDraftSummary() {
+  const node = $('config-draft'); if (!node) return;
+  if (!configDraft) { node.textContent = configLoaded ? '配置读取失败，草稿不可用。' : '正在读取已保存配置…'; node.className = ''; return; }
+  const summary = changeSummary();
+  const parts = [];
+  if (summary && (summary.added || summary.removed || summary.edited || summary.routes)) {
+    parts.push(`未保存：新增 ${summary.added}、修改 ${summary.edited}、删除 ${summary.removed} 个端点，路由变更 ${summary.routes ? '有' : '无'}`);
+  } else parts.push('无未保存修改');
+  if (pendingRestart) parts.push('已有保存待重启（当前实例仍在用旧配置）');
+  if (summary && summary.unlinked.length) parts.push(`未关联路由：${summary.unlinked.join('、')}（不能保存）`);
+  parts.push('当前生效版本未核对');
+  node.textContent = parts.join(' · ');
+  node.className = (summary && (summary.added || summary.removed || summary.edited || summary.routes)) || pendingRestart ? 'dirty' : '';
+}
+function renderConfig() {
+  if (!configDraft) return;
+  renderEndpoints();
+  routeEditor();
+  $('route-runtime').hidden = true;
+  for (const button of [$('endpoint-add-upstream'), $('endpoint-add-downstream')]) {
+    button.hidden = !allowEdit; button.disabled = configBusy;
+  }
   $('config-save').disabled = !allowEdit || configBusy || !configLoaded;
   $('config-restart').disabled = !allowEdit || configBusy || !configLoaded;
+  renderDraftSummary();
+}
+function routeEditor() {
+  const rows = configDraft.routes.map((route, index) => {
+    const row = document.createElement('fieldset'); row.className = 'config-card config-fields'; row.disabled = !allowEdit || configBusy;
+    configField(row, '路由 ID', route.id, value => { route.id = value; touchDraft(); });
+    for (const key of ['upstream', 'downstream', 'policy']) {
+      const names = key === 'policy' ? configDraft.policies : sideIds(key);
+      configField(row, key, route[key], value => { route[key] = value; touchDraft(); }, names.map(id => [id, id]));
+    }
+    const remove = element('button', '删除路由'); remove.type = 'button';
+    addListenerIf(remove, 'click', () => { configDraft.routes.splice(index, 1); touchDraft(); renderConfig(); }); row.append(remove); return row;
+  });
+  $('route-editor').replaceChildren(...rows);
+  $('route-add').hidden = !allowEdit; $('route-add').disabled = configBusy;
 }
 async function loadConfig(epoch) {
   try {
@@ -371,61 +734,124 @@ async function loadConfig(epoch) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     if (epoch !== generation) return;
-    configDraft = data; configLoaded = true;
-    renderConfig(); $('config-result').textContent = allowEdit ? '端点与路由改动重启后生效' : '只读模式';
-  } catch (error) { if (epoch === generation) $('config-result').textContent = error.message; }
+    configDraft = data;
+    savedConfig = clone(data);
+    configLoaded = true;
+    newEndpointIds.clear(); pendingDelete.clear(); newForms.upstream = false; newForms.downstream = false;
+    renderConfig();
+    $('config-result').textContent = allowEdit
+      ? '已读取已保存配置；端点与路由改动需重启网关。当前生效版本未核对。'
+      : '只读模式：可以展开查看，不能修改。';
+  } catch (error) {
+    if (epoch !== generation) return;
+    configLoaded = false;
+    $('config-result').textContent = error.message;
+    renderDraftSummary();
+  }
 }
 $('route-add').addEventListener('click', () => {
   if (!configDraft || !allowEdit || configBusy) return;
-  const names = side => Object.keys(configDraft.endpoints).filter(id => configDraft.endpoints[id].side === side);
-  configDraft.routes.push({ id: '', upstream: names('upstream')[0] ?? '', downstream: names('downstream')[0] ?? '', policy: configDraft.policies[0] ?? '' });
-  renderConfig();
+  configDraft.routes.push({ id: '', upstream: sideIds('upstream')[0] ?? '', downstream: sideIds('downstream')[0] ?? '', policy: configDraft.policies[0] ?? '' });
+  touchDraft(); renderConfig();
 });
 async function waitForRestart(startedAt) {
   generation++; clearTimeout(pollTimer); streamController?.abort();
   $('connection').textContent = '网关正在重启…';
-  $('config-result').textContent = '网关正在重启…端点与路由改动重启后生效';
+  $('config-result').textContent = '配置已保存，已请求重启，正在等待新实例…';
+  const deadline = Date.now() + 30000;
   while (restarting) {
     await new Promise(resolve => setTimeout(resolve, 1000));
     try {
       const response = await fetch('/api/state', { cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.timeout(3000) });
-      // A stale session is rejected by the new process. Also detect changed instance start time.
+      // A stale session is rejected by the new process. Also detect a changed instance start time.
       if (response.status !== 401 && !(response.ok && (await response.json()).started_at !== startedAt)) continue;
-      $('connection').textContent = '网关已重启，请重新登录';
-      $('config-result').textContent = '网关已重启，请重新登录';
+      $('connection').textContent = response.status === 401 ? '会话已失效，请重新登录核对运行状态' : '网关已重启，请重新登录';
+      $('config-result').textContent = $('connection').textContent;
       // Leave the notice on screen long enough to read before leaving the panel.
       await new Promise(resolve => setTimeout(resolve, 1800));
       location.replace('/'); return;
     } catch { /* Instance is still stopping or starting. */ }
+    if (Date.now() > deadline) {
+      $('connection').textContent = '网关仍未恢复';
+      $('config-result').textContent = '仍未恢复服务：请检查进程管理器，或手动启动网关；本页会继续等待。';
+    }
   }
 }
 async function saveConfig(restart) {
   if (!configDraft || !configLoaded || !allowEdit || configBusy) return;
+  const summary = changeSummary();
+  if (summary && summary.unlinked.length) {
+    $('config-result').classList.add('failed');
+    $('config-result').textContent = `有端点还没有关联路由，不能保存：${summary.unlinked.join('、')}`;
+    return;
+  }
   configBusy = true; renderConfig();
   $('config-result').classList.remove('failed'); $('config-result').textContent = '正在校验并保存…';
   try {
     const state = restart ? await api('/api/state') : null;
-    const endpoints = Object.fromEntries(Object.entries(configDraft.endpoints).map(([id, e]) => {
-      const { id: _id, used: _used, ...definition } = e; return [id, definition];
-    }));
+    const payload = configPayload();
     if (restart) restarting = true;
     let result;
-    try { result = await api('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoints, routes: configDraft.routes, restart }) }); }
+    try { result = await api('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, restart }) }); }
     catch (error) { restarting = false; throw error; }
-    $('config-result').textContent = result.message;
-    if (restart) { void waitForRestart(state.started_at); }
+    savedConfig = clone(configDraft);
+    newEndpointIds.clear(); pendingDelete.clear();
+    if (restart) { pendingRestart = false; void waitForRestart(state.started_at); }
+    else {
+      pendingRestart = true;
+      $('config-result').textContent = '已保存到配置文件；当前实例仍使用原配置，重启后生效。';
+    }
   } catch (error) { $('config-result').textContent = error.message; $('config-result').classList.add('failed'); }
   finally { if (!restarting) { configBusy = false; renderConfig(); } }
 }
 $('config-save').addEventListener('click', () => { void saveConfig(false); });
-$('config-restart').addEventListener('click', () => { void saveConfig(true); });
+$('config-restart').addEventListener('click', () => {
+  const button = $('config-restart');
+  if (button.dataset.confirm === 'yes') {
+    button.dataset.confirm = 'no'; button.textContent = '保存并重启'; void saveConfig(true); return;
+  }
+  const summary = changeSummary();
+  const changes = summary ? `将保存：新增 ${summary.added}、修改 ${summary.edited}、删除 ${summary.removed} 个端点，路由 ${configDraft.routes.length} 条。` : '';
+  button.dataset.confirm = 'yes'; button.textContent = '确认：保存配置并重启网关';
+  $('config-result').classList.remove('failed');
+  $('config-result').textContent = `${changes}重启会中断当前的端点连接，并需要重新登录。再点一次确认。`;
+});
+addListenerIf($('endpoint-add-upstream'), 'click', () => {
+  if (!configDraft || !allowEdit || configBusy) return;
+  resetDraft('upstream'); newForms.upstream = true; newForms.downstream = false; renderConfig();
+});
+addListenerIf($('endpoint-add-downstream'), 'click', () => {
+  if (!configDraft || !allowEdit || configBusy) return;
+  resetDraft('downstream'); newForms.downstream = true; newForms.upstream = false; renderConfig();
+});
+addListenerIf($('endpoint-expand-all'), 'click', () => {
+  for (const id of Object.keys(draftEndpoints())) endpointOpen.add(id);
+  renderConfig();
+});
+addListenerIf($('endpoint-collapse-all'), 'click', () => { endpointOpen.clear(); renderConfig(); });
+addListenerIf($('endpoint-search'), 'input', event => { endpointSearch = String(event?.target?.value ?? ''); renderEndpoints(); });
+addListenerIf($('endpoint-jump-upstream'), 'click', () => { const target = $('endpoints-upstream-title'); if (target?.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+addListenerIf($('endpoint-jump-downstream'), 'click', () => { const target = $('endpoints-downstream-title'); if (target?.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 window.addEventListener('pagehide', () => { restarting = false; generation++; clearTimeout(pollTimer); streamController?.abort(); });
+window.addEventListener('beforeunload', event => {
+  const summary = configDraft ? changeSummary() : null;
+  if (!summary || !(summary.added || summary.removed || summary.edited || summary.routes)) return;
+  event.preventDefault(); event.returnValue = '有未保存的端点与路由改动，确定离开吗？';
+});
+function syncConfigBarHeight() {
+  const bar = $('config-controls');
+  if (!bar || typeof ResizeObserver !== 'function' || typeof document.documentElement?.style?.setProperty !== 'function') return;
+  const observer = new ResizeObserver(() => document.documentElement.style.setProperty('--config-bar', `${bar.offsetHeight}px`));
+  observer.observe(bar);
+}
+syncConfigBarHeight();
 const PAGES = ['overview', 'endpoints', 'routes', 'rules', 'logs', 'policies'];
 function route() {
   const name = (location.hash.replace(/^#\/?/, '') || 'overview').toLowerCase();
   const page = PAGES.includes(name) ? name : 'overview';
   document.body.dataset.page = page;
   $('config-controls').hidden = !['endpoints', 'routes'].includes(page);
+  const tools = $('endpoint-tools'); if (tools) tools.hidden = page !== 'endpoints';
   for (const link of document.querySelectorAll('nav a')) link.classList.toggle('active', link.dataset.page === page);
 }
 window.addEventListener('hashchange', route);

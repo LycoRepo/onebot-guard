@@ -33,7 +33,7 @@ function panel(fetch?: typeof globalThis.fetch) {
 test('Connection and readiness stay distinct for every combination of runtime states', () => {
   const { run } = panel();
   for (const isConnected of [false, true]) for (const isReady of [false, true]) {
-    const row = run(`endpointCard('UPSTREAM', { side: 'upstream', onebot: 'onebot_v11', connection: 'listen', connected: ${isConnected}, ready: ${isReady}, buffered_bytes: 0, reconnect_attempts: 0 })`);
+    const row = run(`runtimeOnlyRow('UPSTREAM', { side: 'upstream', onebot: 'onebot_v11', connection: 'listen', connected: ${isConnected}, ready: ${isReady}, buffered_bytes: 0, reconnect_attempts: 0 })`);
     assert.ok(row.textContent.includes(`${isConnected ? '已连接' : '未连接'} · ${isReady ? '已就绪' : '未就绪'}`));
   }
 });

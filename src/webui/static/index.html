@@ -29,14 +29,17 @@
     <main>
       <p id="error" role="alert"></p>
       <div id="config-controls" class="card config-actions" hidden>
-        <ul class="config-notes">
-          <li>端点与路由共用一份草稿。</li>
-          <li>保存后需重启，改动才会生效。</li>
-          <li>保存并重启后，请重新登录。</li>
-        </ul>
+        <div class="config-state">
+          <p id="config-draft" role="status" aria-live="polite">正在读取已保存配置…</p>
+          <ul class="config-notes">
+            <li>端点与路由共用一份草稿。</li>
+            <li>保存不等于生效：端点与路由改动需重启网关。</li>
+            <li>保存并重启后，请重新登录。</li>
+          </ul>
+        </div>
         <div class="config-buttons">
           <div class="inline">
-            <button id="config-save" type="button" disabled>保存</button>
+            <button id="config-save" type="button" disabled>保存配置</button>
             <button id="config-restart" type="button" disabled>保存并重启</button>
           </div>
           <span id="config-result" role="status" aria-live="polite">正在读取配置，加载后即可查看或编辑。</span>
@@ -53,18 +56,33 @@
       </section>
 
       <section class="page" id="endpoints" aria-labelledby="endpoints-title">
-        <div class="phead"><h1 id="endpoints-title">端点</h1><span class="sub">连接、缓冲与状态表</span></div>
-        <div class="zones">
-          <div class="zone-block">
-            <h2 class="zone up"><span class="bar"></span>上游<span class="hint">QQ 侧 · 协议端</span></h2>
-            <div id="endpoints-upstream" class="card ep-list"><p class="muted empty">正在读取上游状态，连接情况会自动更新。</p></div>
-          </div>
-          <div class="zone-block">
-            <h2 class="zone down"><span class="bar"></span>下游<span class="hint">应用侧 · 机器人</span></h2>
-            <div id="endpoints-downstream" class="card ep-list"><p class="muted empty">正在读取下游状态，连接情况会自动更新。</p></div>
+        <div class="phead"><h1 id="endpoints-title">端点</h1><span class="sub">管理协议端与机器人应用的连接；端点与路由改动需重启后生效</span></div>
+        <div id="endpoint-tools">
+          <input id="endpoint-search" type="search" placeholder="搜索 ID / 地址 / 账号 / 主体" aria-label="搜索端点">
+          <div class="jump">
+            <button type="button" class="ghost" id="endpoint-jump-upstream">上游 <span id="endpoint-count-upstream">0</span></button>
+            <button type="button" class="ghost" id="endpoint-jump-downstream">下游 <span id="endpoint-count-downstream">0</span></button>
+            <button type="button" class="ghost" id="endpoint-expand-all">展开全部</button>
+            <button type="button" class="ghost" id="endpoint-collapse-all">收起全部</button>
           </div>
         </div>
-        <h2 class="zone"><span class="bar"></span>状态表规模<span class="hint">内存中的有界状态</span></h2>
+        <div class="zones">
+          <section class="zone-block" aria-labelledby="endpoints-upstream-title">
+            <div class="zone-head">
+              <h2 class="zone up" id="endpoints-upstream-title"><span class="bar"></span>上游<span class="hint">QQ 侧 · 协议端</span><span class="zone-count" id="zone-count-upstream"></span></h2>
+              <div class="zone-tools"><button type="button" id="endpoint-add-upstream">新增上游</button></div>
+            </div>
+            <div id="endpoints-upstream" class="ep-list"></div>
+          </section>
+          <section class="zone-block" aria-labelledby="endpoints-downstream-title">
+            <div class="zone-head">
+              <h2 class="zone down" id="endpoints-downstream-title"><span class="bar"></span>下游<span class="hint">应用侧 · 机器人</span><span class="zone-count" id="zone-count-downstream"></span></h2>
+              <div class="zone-tools"><button type="button" id="endpoint-add-downstream">新增下游</button></div>
+            </div>
+            <div id="endpoints-downstream" class="ep-list"></div>
+          </section>
+        </div>
+        <h2 class="zone"><span class="bar"></span>运行实例状态表规模<span class="hint">内存中的有界状态</span></h2>
         <dl id="queues" class="cards compact"></dl>
       </section>
 
