@@ -16,6 +16,6 @@
 | send_private_msg | user_id 明确在对应规则 user_ids 内 |
 | send_msg | 明确 message_type=group/private；执行同样目标检查，拒绝同时传群与用户 |
 
-消息段还须列在 `segment_types` 中。text 只接受字符串 text；at 只接受 qq，并要求 user_ids 授权该用户；`@全体` 需单独开启 `allow_at_all`。image/record/video 只接受 file，远程 HTTP(S) 媒体需 `allow_remote_media`，本地路径或无主机的 file URL 需 `allow_local_files`，两者默认关闭；媒体 URL 内不能有用户名或密码。网络文件路径、未知 URI scheme、base64 和首尾空白的文件值第一批拒绝，不能用本地文件开关绕开远程媒体开关。打开媒体开关意味着信任协议端的网络或文件访问权限。发送 CQ 字符串要求 `auto_escape: true`，否则拒绝；这个开关让协议端将其视为普通文本。
+消息段还须列在 `segment_types` 中。text 只接受字符串 text；at 只接受 qq，并要求 user_ids 授权该用户；`@全体` 需单独开启 `allow_at_all`。image/record/video 只接受 file，远程 HTTP(S) 媒体需 `allow_remote_media`，本地路径或无主机的 file URL 需 `allow_local_files`，两者默认关闭；媒体 URL 内不能有用户名或密码。网络文件路径、未知 URI scheme、base64 和首尾空白的文件值一律拒绝，不能用本地文件开关绕开远程媒体开关。打开媒体开关意味着信任协议端的网络或文件访问权限。发送 CQ 字符串要求 `auto_escape: true`，否则拒绝；这个开关让协议端将其视为普通文本。
 
-第一批没有可信消息归属索引，因此 `get_msg`、历史读取与 reply 引用统一拒绝，即使配置显式 allow。合并转发、卡片、未实现段类型、别名、`_async`、`_rate_limited` 等变体、管理接口及实现端扩展同样拒绝。显式 allow 只能开放已实现的能力，不能赋予未知接口安全语义。
+没有可信的消息归属索引，因此 `get_msg`、历史读取与 reply 引用统一拒绝，即使配置显式 allow。合并转发、卡片、未实现段类型、别名、`_async`、`_rate_limited` 等变体、管理接口及实现端扩展同样拒绝。显式 allow 只能开放已实现的能力，不能赋予未知接口安全语义。

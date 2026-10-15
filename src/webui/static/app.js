@@ -54,7 +54,7 @@ function pairs(target, entries, group) {
 }
 function span(cls, text) { const node = document.createElement('span'); node.className = cls; node.textContent = String(text ?? ''); return node; }
 
-// ── 把内部代号翻成人话（找不到就原样显示）──
+// ── 把配置键翻成中文标签（找不到就原样显示）──
 const WORDS = {
   fields: {
     connection: ['连接方式', ''], url: ['连接地址', ''], host: ['监听地址', ''], port: ['监听端口', ''],

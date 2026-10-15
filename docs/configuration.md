@@ -1,6 +1,6 @@
 # 配置与运行
 
-使用 Node.js 24 和 npm，复制 `config/gateway.example.yaml` 为被忽略的 `config/gateway.yaml`，替换 ACCOUNT_A、GROUP_ALLOWED、USER_ALLOWED 等占位符。ID 必须写成字符串。示例能真实加载，但其中显式允许的 `get_msg` 和 reply 段仍按第一批限制拒绝，具体见 [权限](permissions.md)。
+使用 Node.js 24 和 npm，复制 `config/gateway.example.yaml` 为被忽略的 `config/gateway.yaml`，替换 ACCOUNT_A、GROUP_ALLOWED、USER_ALLOWED 等占位符。ID 必须写成字符串。示例能真实加载，但其中显式允许的 `get_msg` 和 reply 段仍按当前限制拒绝，具体见 [权限](permissions.md)。
 
 设置 `UPSTREAM_TOKEN` 与 `GATEWAY_TOKEN` 环境变量后执行 `npm start`。可用 `GATEWAY_CONFIG` 指定配置文件；默认路径为 `config/gateway.yaml`。凭据只通过 `token_env` 指向的环境变量读取，不能放在 YAML、URL 或示例命令中。日志级别由 `log.level` 配置。
 
@@ -11,7 +11,7 @@
 | downstream | listen | 应用 → 网关 | 正向 WebSocket |
 | downstream | connect | 网关 → 应用 | 反向 WebSocket |
 
-`connect` 只接受无凭据、无查询参数、无 fragment 的 `ws://` 或 `wss://` URL。WSS 使用系统信任库并验证证书。`listen` 使用 host/port；可通过 `tls.cert_env` 和 `tls.key_env` 指向包含 PEM 内容的环境变量启用 TLS。第一批没有自定义 CA、证书文件路径或关闭证书校验的开关。
+`connect` 只接受无凭据、无查询参数、无 fragment 的 `ws://` 或 `wss://` URL。WSS 使用系统信任库并验证证书。`listen` 使用 host/port；可通过 `tls.cert_env` 和 `tls.key_env` 指向包含 PEM 内容的环境变量启用 TLS。当前没有自定义 CA、证书文件路径或关闭证书校验的开关。
 
 所有监听连接要求 `Authorization: Bearer …`。上游反向连接还要求 `X-Client-Role: Universal` 和匹配 `expected_self_id` 的 `X-Self-ID`。上游正向连接仅执行一次固定的 `get_login_info` 账号验证，不探测其他 API；验证完成前不转发业务。下游身份由已鉴权端点的 `principal` 固定，拨号到应用时携带 Universal 和固定账号身份头。
 
@@ -65,7 +65,7 @@ Compose 在解析时要求上述两个环境变量已设置，构建验证可以
 
 启用的服务所需环境变量未设置或为空，启动失败；不降级为免认证。建议读写指向不同环境变量并设置不同值。应用比较的是 SHA-256 定长摘要，使用 `timingSafeEqual`。读 token 不能替代写 token，写请求不叠加读 token 检查。`observability.host` 仍只允许 `127.0.0.1` 和 `::1`。
 
-访问 WebUI 的 `/`，未认证时只显示独立登录页；读取 token 换取内存会话后才加载面板 HTML/CSS/JS、状态、策略和 SSE。读 token 不再存入 sessionStorage；写 token 仍独立走 Bearer，保留在当前标签页 sessionStorage，登出时清除。不把凭据放进 URL。新会话选项省略时在会话模块应用默认值，不向旧版规范化配置对象添加键，保留第二批精确默认值契约。详见 [接口与安全边界](webui.md)。
+访问 WebUI 的 `/`，未认证时只显示独立登录页；读取 token 换取内存会话后才加载面板 HTML/CSS/JS、状态、策略和 SSE。读 token 不再存入 sessionStorage；写 token 仍独立走 Bearer，保留在当前标签页 sessionStorage，登出时清除。不把凭据放进 URL。新会话选项省略时在会话模块应用默认值，不向旧版规范化配置对象添加键，保留原有的精确默认值契约。详见 [接口与安全边界](webui.md)。
 
 保存仅接受策略映射；先解析 YAML，读取当前文件并用 Document API 替换 policies，再对完整文档调用 `validateConfig()`（含 routes 引用），通过后同目录临时文件写入并 rename 原子替换，最后主动调用策略重载。解析、校验、写入或 rename 失败不会改变原文件；重载失败时恢复原文件。非策略段与注释保留，非策略配置漂移则拒绝保存并提示重启。正文与配置文件均限制为 1 MiB。
 

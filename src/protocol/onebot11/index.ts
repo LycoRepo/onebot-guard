@@ -28,7 +28,7 @@ export function parseAction(p: Packet): Action {
 }
 export function segments(v: unknown, autoEscape = false): Segment[] {
   if (typeof v === 'string') {
-    if (!autoEscape && v.includes('[CQ:')) throw new Error('第一批不解析 CQ 码，请使用消息段数组或 auto_escape=true');
+    if (!autoEscape && v.includes('[CQ:')) throw new Error('不解析 CQ 码，请使用消息段数组或 auto_escape=true');
     return [{ type: 'text', data: { text: v } }];
   }
   if (!Array.isArray(v) || !v.length) throw new Error('message 必须是文本或非空消息段数组');

@@ -160,7 +160,7 @@ export function validateConfig(v: unknown): Config {
   for (const id of Object.keys(endpoints)) if (!routes.some(r => r.upstream === id || r.downstream === id)) fail(`endpoints.${id}`, '端点未被任何 route 使用');
   const ex = object(o.extensions ?? {}, 'extensions', ['coordination']);
   const co = object(ex.coordination ?? {}, 'extensions.coordination', ['enabled']);
-  if (bool(co.enabled, 'extensions.coordination.enabled', false)) fail('extensions.coordination.enabled', '第一批未实现调度，必须关闭');
+  if (bool(co.enabled, 'extensions.coordination.enabled', false)) fail('extensions.coordination.enabled', '当前未实现调度，必须关闭');
   const initial = num(rc.initial_ms, 'runtime.reconnect.initial_ms', 1000, 1);
   const maximum = num(rc.max_ms, 'runtime.reconnect.max_ms', 30000, initial);
   const maxConnections = num(r.max_connections, 'runtime.max_connections', 64, 1, 4096);

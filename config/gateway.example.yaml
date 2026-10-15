@@ -140,11 +140,11 @@ policies:
         - name: get_login_info
         - name: get_group_list
         - name: get_msg
-          # 第一批无可信归属索引：即使显式 allow 也拒绝。此项展示保守行为。
+          # 没有可信的归属索引：即使显式 allow 也拒绝。此项展示保守行为。
         - name: send_group_msg
           group_ids: ["GROUP_ALLOWED"]
           segment_types: [text, at, reply]
-          # reply 第一批统一拒绝；at 另需 user_ids 授权，@全体需 allow_at_all。
+          # reply 统一拒绝；at 另需 user_ids 授权，@全体需 allow_at_all。
       deny:
         - name: set_group_ban
         - name: set_group_kick
