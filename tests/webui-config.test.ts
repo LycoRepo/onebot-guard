@@ -217,10 +217,10 @@ test('Native panel forms submit shared drafts and keep restart notice readable f
   assert.equal(getNode('config-controls').hidden, false); assert.equal(getNode('config-save').disabled, false);
   const fields = () => getNode('endpoints-upstream').children[0].children[2];
   const fieldNames = () => fields().children.map((n: any) => n.text);
-  assert.ok(fieldNames().includes('host')); assert.ok(!fieldNames().includes('url')); assert.ok(!fieldNames().some((s: string) => s.startsWith('principal')));
-  let connection = fields().children[0].children[0]; connection.value = 'connect'; connection.listeners.change();
-  assert.ok(fieldNames().includes('url')); assert.ok(!fieldNames().includes('host')); assert.ok(!fieldNames().includes('port'));
-  connection = fields().children[0].children[0]; connection.value = 'listen'; connection.listeners.change();
+  assert.ok(fieldNames().includes('监听地址')); assert.ok(!fieldNames().includes('连接地址')); assert.ok(!fieldNames().includes('下游主体'));
+  let connection = fields().children[0].children.at(-1); connection.value = 'connect'; connection.listeners.change();
+  assert.ok(fieldNames().includes('连接地址')); assert.ok(!fieldNames().includes('监听地址')); assert.ok(!fieldNames().includes('监听端口'));
+  connection = fields().children[0].children.at(-1); connection.value = 'listen'; connection.listeners.change();
   await runInContext("configDraft.endpoints.up.expected_self_id = ''; saveConfig(false)", context);
   assert.match(getNode('config-result').textContent, /endpoints.up.expected_self_id/); assert.equal(getNode('config-save').disabled, false);
   const saving = runInContext("configDraft.endpoints.up.expected_self_id = 'ACCOUNT_A'; configDraft.endpoints.downA.port = 42001; saveConfig(false)", context);

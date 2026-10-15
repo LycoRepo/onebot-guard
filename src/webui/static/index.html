@@ -22,12 +22,26 @@
       <div class="foot">
         <span id="connection" role="status" class="pill">正在连接…</span>
         <p class="foot-note">已登录 · 会话过期需重新登录</p>
-        <button id="logout" type="button" class="linkbtn">登出</button>
+        <button id="logout" type="button" class="linkbtn">退出登录</button>
       </div>
     </aside>
 
     <main>
       <p id="error" role="alert"></p>
+      <div id="config-controls" class="card config-actions" hidden>
+        <ul class="config-notes">
+          <li>端点与路由共用一份草稿。</li>
+          <li>保存后需重启，改动才会生效。</li>
+          <li>保存并重启后，请重新登录。</li>
+        </ul>
+        <div class="config-buttons">
+          <div class="inline">
+            <button id="config-save" type="button" disabled>保存</button>
+            <button id="config-restart" type="button" disabled>保存并重启</button>
+          </div>
+          <span id="config-result" role="status" aria-live="polite">正在读取配置，加载后即可查看或编辑。</span>
+        </div>
+      </div>
 
       <section class="page" id="page-overview" aria-labelledby="overview-title">
         <div class="phead"><h1 id="overview-title">概览</h1><span class="sub">网关整体状态</span></div>
@@ -43,11 +57,11 @@
         <div class="zones">
           <div class="zone-block">
             <h2 class="zone up"><span class="bar"></span>上游<span class="hint">QQ 侧 · 协议端</span></h2>
-            <div id="endpoints-upstream" class="card ep-list"><p class="muted">等待状态数据</p></div>
+            <div id="endpoints-upstream" class="card ep-list"><p class="muted empty">正在读取上游状态，连接情况会自动更新。</p></div>
           </div>
           <div class="zone-block">
             <h2 class="zone down"><span class="bar"></span>下游<span class="hint">应用侧 · 机器人</span></h2>
-            <div id="endpoints-downstream" class="card ep-list"><p class="muted">等待状态数据</p></div>
+            <div id="endpoints-downstream" class="card ep-list"><p class="muted empty">正在读取下游状态，连接情况会自动更新。</p></div>
           </div>
         </div>
         <h2 class="zone"><span class="bar"></span>状态表规模<span class="hint">内存中的有界状态</span></h2>
@@ -55,12 +69,12 @@
       </section>
 
       <section class="page" id="page-routes" aria-labelledby="routes-title">
-        <div class="phead"><h1 id="routes-title">路由</h1><span class="sub">一条路由 = 一个上游账号 × 一个下游应用</span></div>
+        <div class="phead"><h1 id="routes-title">路由</h1><span class="sub">每条路由把一个上游账号与一个下游连接起来</span></div>
         <div id="route-editor" class="card form-block"></div>
         <button id="route-add" type="button" hidden>添加路由</button>
         <div id="route-runtime" class="card table-wrap">
           <table>
-            <thead><tr><th scope="col">路由</th><th scope="col">上游就绪</th><th scope="col">下游就绪</th><th scope="col">可用</th><th scope="col">待回包</th></tr></thead>
+            <thead><tr><th scope="col">路由</th><th scope="col">上游</th><th scope="col">下游</th><th scope="col">路由就绪</th><th scope="col">待回包</th></tr></thead>
             <tbody id="routes"></tbody>
           </table>
         </div>
@@ -71,22 +85,22 @@
         <form id="rules-form">
           <div class="card form-block">
             <h2 class="card-title">收消息 <span class="hint">上游的什么消息能进来</span></h2>
-            <label for="rules-groups">允许的群 <span class="hint">一行一个群号；留空 = 所有群都放行</span></label>
+            <label for="rules-groups">接收群白名单 <span class="hint">一行一个群号；留空时所有群都放行。</span></label>
             <textarea id="rules-groups" rows="3" placeholder="GROUP_ALLOWED"></textarea>
-            <label for="rules-users">允许的私聊 <span class="hint">一行一个 QQ 号；留空 = 所有人都放行</span></label>
+            <label for="rules-users">接收私聊白名单 <span class="hint">一行一个 QQ 号；留空时所有人都放行。</span></label>
             <textarea id="rules-users" rows="3" placeholder="USER_ALLOWED"></textarea>
-            <label>屏蔽这些消息类型 <span class="hint">勾中的类型整条丢弃</span></label>
+            <label>拦下这些消息类型 <span class="hint">包含勾选类型的消息会被整条拦下。</span></label>
             <div class="checks" id="rules-blocked"></div>
-            <label for="rules-keywords">关键词黑名单 <span class="hint">消息里出现就丢；一行一个</span></label>
-            <textarea id="rules-keywords" rows="3" placeholder="加群"></textarea>
+            <label for="rules-keywords">关键词黑名单 <span class="hint">一行一个关键词；消息中出现时整条拦下。</span></label>
+            <textarea id="rules-keywords" rows="3" placeholder="KEYWORD_BLOCKED"></textarea>
           </div>
           <div class="card form-block">
             <h2 class="card-title">发消息 <span class="hint">下游能发给谁</span></h2>
-            <label for="rules-send-groups">允许发到这些群 <span class="hint">留空 = 不许发到任何群</span></label>
+            <label for="rules-send-groups">发送群白名单 <span class="hint">留空时发往任何群的消息都会被拦下。</span></label>
             <textarea id="rules-send-groups" rows="3" placeholder="GROUP_ALLOWED"></textarea>
-            <label for="rules-send-users">允许发给这些人 <span class="hint">留空 = 不许发给任何人</span></label>
+            <label for="rules-send-users">发送私聊白名单 <span class="hint">留空时发给任何人的消息都会被拦下。</span></label>
             <textarea id="rules-send-users" rows="3" placeholder="USER_ALLOWED"></textarea>
-            <label>允许发送的消息类型 <span class="hint">没勾的类型发不出去</span></label>
+            <label>放行这些发送类型 <span class="hint">未勾选的类型会被拦下。</span></label>
             <div class="checks" id="rules-send-types"></div>
           </div>
           <div class="inline">
@@ -99,33 +113,27 @@
       <section class="page" id="page-logs" aria-labelledby="logs-title">
         <div class="phead">
           <h1 id="logs-title">实时日志</h1>
-          <span class="sub" id="stream-status" role="status">尚未连接</span>
-          <span class="spacer"></span>
-          <label class="check"><input id="follow" type="checkbox" checked> 跟随最新</label>
+          <div class="log-controls">
+            <span class="sub" id="stream-status" role="status">正在连接，连上后会自动显示日志。</span>
+            <label class="check"><input id="follow" type="checkbox" checked> 跟随最新</label>
+          </div>
         </div>
         <ol id="logs" tabindex="0" aria-label="实时事件记录"></ol>
       </section>
 
       <section class="page" id="page-policies" aria-labelledby="policies-title">
-        <div class="phead"><h1 id="policies-title">策略</h1><span class="sub" id="reload-status"></span></div>
-        <p class="muted">仅编辑「策略名 → 策略内容」的 YAML 映射。保存前会校验整份配置与路由引用，校验不通过不会落盘，旧策略继续生效。</p>
+        <div class="phead"><h1 id="policies-title">高级 YAML</h1><span class="sub" id="reload-status"></span></div>
+        <p class="muted">在这里编辑策略名称及其内容。保存前会校验整份配置和路由引用。</p>
+        <p class="muted">校验未通过时不会写入文件，旧策略继续生效。</p>
         <form id="policy-form">
           <label for="policy-yaml">当前策略 YAML</label>
           <textarea id="policy-yaml" readonly spellcheck="false" rows="22"></textarea>
           <div id="edit-controls" hidden>
-            <div class="inline"><button id="save" type="submit">校验并保存</button><span class="muted">已登录即可保存；校验不通过不会落盘。</span></div>
+            <div class="inline"><button id="save" type="submit">校验并保存</button><span class="muted">保存后立即重载策略。</span></div>
           </div>
         </form>
-        <p id="policy-result" role="status" aria-live="polite">策略尚未加载</p>
+        <p id="policy-result" role="status" aria-live="polite">正在读取策略，加载后会显示当前 YAML。</p>
       </section>
-      <div id="config-controls" class="card form-block" hidden>
-        <p class="muted">端点与路由共用一份草稿。保存不会热重载，改动重启后生效；保存并重启后需重新登录。</p>
-        <div class="inline">
-          <button id="config-save" type="button" disabled>保存</button>
-          <button id="config-restart" type="button" disabled>保存并重启</button>
-          <span id="config-result" role="status" aria-live="polite">配置尚未加载</span>
-        </div>
-      </div>
     </main>
   </div>
 </body>

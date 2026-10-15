@@ -12,7 +12,8 @@ let configDraft = null;
 let configBusy = false;
 let restarting = false;
 let configLoaded = false;
-const yes = value => value ? '是' : '否';
+const ready = value => value ? '已就绪' : '未就绪';
+const connected = value => value ? '已连接' : '未连接';
 const time = value => value ? new Date(value).toLocaleString() : '暂无';
 function element(tag, text) { const node = document.createElement(tag); node.textContent = String(text); return node; }
 function pairs(target, entries, group) {
@@ -21,30 +22,43 @@ function pairs(target, entries, group) {
     const dt = element('dt', group ? human(group, key) : key);
     const w = group ? word(group, key) : null;
     dt.title = w ? `${key}${w[1] ? ` — ${w[1]}` : ''}` : String(key);
-    row.append(dt, element('dd', value)); return row;
+    const dd = element('dd', value); dd.title = String(value);
+    row.append(dt, dd); return row;
   }));
 }
 function span(cls, text) { const node = document.createElement('span'); node.className = cls; node.textContent = String(text ?? ''); return node; }
 
 // ── 把内部代号翻成人话（找不到就原样显示）──
 const WORDS = {
+  fields: {
+    connection: ['连接方式', ''], url: ['连接地址', ''], host: ['监听地址', ''], port: ['监听端口', ''],
+    token_env: ['凭据环境变量', '填写环境变量名，不要填写凭据值。'],
+    expected_self_id: ['上游账号', ''], reconnect: ['自动重连', ''],
+    principal: ['下游主体', ''], readonly: ['只读模式', ''],
+    upstream: ['上游端点', ''], downstream: ['下游端点', ''], policy: ['策略', ''],
+    '路由 ID': ['路由名称', ''],
+  },
+  sources: {
+    event: ['上游事件', ''], action: ['下游请求', ''], response: ['上游回包', ''],
+    upstream: ['上游', ''], downstream: ['下游', ''],
+  },
   queues: {
     application_queue: ['应用队列', '等待送到下游的消息条数，正常一直是 0'],
     pending_requests: ['待回包请求', '已发给上游、还在等它回答的请求'],
-    identity_probes: ['账号验证中', '正在向上游确认机器人身份'],
+    identity_probes: ['账号验证中', '正在向上游确认账号身份'],
     dedupe_entries: ['去重记录', '用来丢弃重复消息的条目数'],
     inbound_rate_entries: ['入站限流计数', '正在按群/人统计的条数'],
     outbound_rate_entries: ['出站限流计数', '正在按目标统计的条数'],
   },
   rules: {
-    'event.scope.allow': ['收到并放行', '来源在允许范围内，消息已转给下游'],
-    'event.scope.deny': ['来源被拒', '发送者落在拒绝范围里'],
+    'event.scope.allow': ['收到并放行', '来源在白名单内，消息已转给下游'],
+    'event.scope.deny': ['来源被拦下', '发送者在拦下名单里'],
     'event.scope.default': ['来源未授权', '这条消息没匹配任何放行规则，默认丢掉'],
-    'event.self': ['自己发的消息', '机器人自己发的不再回灌'],
-    'event.bot': ['指定机器人', '该账号在拒绝名单里'],
+    'event.self': ['自己发的消息', '上游账号自己发的不再回灌'],
+    'event.bot': ['指定账号', '该账号在拦下名单里'],
     'event.keyword': ['命中关键词', '消息含黑名单词，整条丢弃'],
     'event.regex': ['命中正则', '消息匹配黑名单规则，整条丢弃'],
-    'event.segment': ['消息类型被屏蔽', '这种消息段不允许进入'],
+    'event.segment': ['消息类型被拦下', '这种消息段不在白名单里'],
     'event.duplicate': ['重复消息', '同一个消息 ID 被投递了两次'],
     'event.rate': ['超出限额', '入站频率超过配置上限'],
     'event.identity': ['账号不符', '事件里的账号和绑定账号对不上'],
@@ -52,19 +66,19 @@ const WORDS = {
     'event.route': ['路由已关闭', '这条路由被主动关掉了'],
     'action.send': ['发送放行', '下游要求发的消息已通过'],
     'action.read': ['读取放行', '下游的只读查询已通过'],
-    'action.name.default': ['接口未授权', '下游调了这个接口，但允许名单里没有它'],
-    'action.name.deny': ['接口被禁', '这个接口在拒绝名单里'],
-    'action.resource': ['目标不在名单', '想发到的群/人不在允许范围'],
-    'action.segment': ['发送类型不允许', '想发的消息类型没被允许'],
+    'action.name.default': ['接口未授权', '下游调了这个接口，但白名单里没有它'],
+    'action.name.deny': ['接口被拦下', '这个接口在拦下名单里'],
+    'action.resource': ['目标不在名单', '想发到的群/人不在白名单里'],
+    'action.segment': ['发送类型被拦下', '想发的消息类型不在白名单里'],
     'action.media': ['媒体被限制', '图片/语音等媒体按配置拦下了'],
     'action.target': ['目标参数有误', '群号或 QQ 号缺失/冲突'],
     'action.params': ['参数不合格', ''],
     'action.readonly': ['只读下游', '这个下游被标成只读，不能发消息'],
     'action.unsupported': ['接口不支持', '这个接口不在网关支持的白名单里'],
     'action.identity': ['身份不可信', '连接身份没通过校验'],
-    'action.reference': ['引用消息被拒', '不能引用消息（没有可信归属）'],
+    'action.reference': ['引用消息被拦下', '不能引用消息（没有可信归属）'],
     'action.rate': ['超出限额', '发送频率超过配置上限'],
-    'action.upstream': ['上游不可用', '上游没连上，发不出去'],
+    'action.upstream': ['上游未就绪', '上游没连上，发不出去'],
     'action.delivery': ['发送失败', '写出过程中出错，结果未知'],
     'action.pending': ['待回包已满', '同时在等的请求太多'],
     'action.route': ['路由已关闭', '这条路由被主动关掉了'],
@@ -80,12 +94,12 @@ const WORDS = {
     dial_or_socket_error: ['连接出错', '拨号或套接字异常'],
     listener_error: ['监听出错', '端口被占用或绑定失败'],
     invalid_json_packet: ['报文不是 JSON', '收到无法解析的内容，已断开'],
-    binary_packet_denied: ['二进制帧被拒', '只接受文本 JSON'],
+    binary_packet_denied: ['二进制帧被拦下', '只接受文本 JSON'],
     outgoing_message_too_large: ['发出的报文过大', '超过上限，已断开'],
     buffer_event_dropped: ['缓冲满，丢弃事件', '下游读得太慢'],
     buffer_connection_closed: ['缓冲满，断开连接', '控制报文不能丢，只能断开'],
     send_error_result_unknown: ['发送出错', '结果未知，不会重发'],
-    authorization_denied: ['连接认证失败', 'token 不对'],
+    authorization_denied: ['连接认证失败', '凭据不对'],
     upstream_role_or_account_mismatch: ['身份头不符', '角色或账号和配置不一致'],
     endpoint_session_limit: ['连接数已满', '这个端点同时只允许一个连接'],
     unverified_upstream_response: ['未验证的回包', ''],
@@ -97,7 +111,7 @@ const human = (group, key, fallback) => { const w = word(group, key); return w ?
 
 const SEGMENT_CHOICES = [['image', '图片'], ['record', '语音'], ['video', '视频'], ['file', '文件'], ['forward', '合并转发'], ['json', '卡片/JSON'], ['xml', 'XML'], ['face', '表情']];
 const SEND_TYPE_CHOICES = [['text', '文字'], ['at', '艾特'], ['image', '图片'], ['face', '表情'], ['reply', '引用回复']];
-const rulesText = new Map([['rules-groups', '群白名单'], ['rules-users', '私聊白名单'], ['rules-keywords', '关键词'], ['rules-send-groups', '允许发送的群'], ['rules-send-users', '允许发送的人']]);
+const rulesText = new Map([['rules-groups', '接收群白名单'], ['rules-users', '接收私聊白名单'], ['rules-keywords', '关键词黑名单'], ['rules-send-groups', '发送群白名单'], ['rules-send-users', '发送私聊白名单']]);
 const lines = id => $(id).value.split('\n').map(s => s.trim()).filter(Boolean);
 const checkedValues = id => [...$(id).querySelectorAll('input:checked')].map(input => input.value);
 function checks(id, choices, selected) {
@@ -123,7 +137,7 @@ function endpointCard(name, endpoint) {
   const tag = span('tag', endpoint.connection === 'connect' ? '网关拨出' : '等待连入');
   const meta = span('meta', '');
   meta.append(
-    pair('状态', `${yes(endpoint.connected)} / ${yes(endpoint.ready)}`, endpoint.ready ? 'ok' : ''),
+    pair('状态', `${connected(endpoint.connected)} · ${ready(endpoint.ready)}`, endpoint.ready ? 'ok' : ''),
     pair('缓冲', `${endpoint.buffered_bytes} B`),
     pair('重连', endpoint.reconnect_attempts),
   );
@@ -142,7 +156,7 @@ function logRow(event) {
     : kind === 'transport_issue' ? human('issues', String(event.reason ?? ''))
     : kind === 'reload' ? `${event.ok ? '重载成功' : '重载失败'}${event.reason ? ` · ${event.reason}` : ''}`
     : `${event.endpoint ?? ''}${event.side ? ` · ${event.side === 'upstream' ? '上游' : '下游'}` : ''}`;
-  row.append(span('tm', timeOf(event.time)), span('lv', level), span('rt', bucket), span('msg', detail));
+  row.append(span('tm', timeOf(event.time)), span('lv', level), span('rt', human('sources', bucket)), span('msg', detail));
   return row;
 }
 function headers(token) { return token ? { Authorization: `Bearer ${token}` } : {}; }
@@ -159,7 +173,7 @@ async function api(path, options = {}) {
 function reload(result) { $('reload-status').textContent = result ? `${time(result.time)} · ${result.ok ? '重载成功' : '重载失败'} · ${result.reason}` : '尚未重载'; }
 function render(state) {
   $('connection').className = 'pill'; $('connection').textContent = '面板已连接';
-  pairs($('overview'), [['网关健康', state.healthy ? '健康' : '等待端点就绪'], ['启动时间', time(state.started_at)], ['最后事件', time(state.last_event_at)], ['允许', state.totals.allowed], ['拒绝', state.totals.denied]]);
+  pairs($('overview'), [['网关状态', ready(state.healthy)], ['启动时间', time(state.started_at)], ['最后事件', time(state.last_event_at)], ['放行', state.totals.allowed], ['拦下', state.totals.denied]]);
   if (!configDraft) {
   const sides = { upstream: [], downstream: [] };
   for (const [name, endpoint] of Object.entries(state.endpoints)) sides[endpoint.side === 'upstream' ? 'upstream' : 'downstream'].push([name, endpoint]);
@@ -170,13 +184,13 @@ function render(state) {
   $('routes').replaceChildren(...state.routes.map(route => {
     const cell = (text, cls) => { const td = element('td', text); if (cls) td.className = cls; return td; };
     const row = document.createElement('tr');
-    row.append(cell(route.id, 'mono'), cell(yes(route.upstream_ready), route.upstream_ready ? 'ok' : ''), cell(yes(route.downstream_ready), route.downstream_ready ? 'ok' : ''), cell(yes(route.ready), route.ready ? 'ok' : ''), cell(route.pending_requests));
+    row.append(cell(route.id, 'mono'), cell(ready(route.upstream_ready), route.upstream_ready ? 'ok' : ''), cell(ready(route.downstream_ready), route.downstream_ready ? 'ok' : ''), cell(ready(route.ready), route.ready ? 'ok' : ''), cell(route.pending_requests));
     return row;
   }));
   } else {
     for (const [id, e] of Object.entries(state.endpoints)) {
       const target = document.getElementById(`endpoint-state-${id}`);
-      if (target) target.textContent = `运行状态：连接 ${yes(e.connected)} · 就绪 ${yes(e.ready)} · 缓冲 ${e.buffered_bytes} B · 重连 ${e.reconnect_attempts}`;
+      if (target) target.textContent = `运行状态：${connected(e.connected)} · ${ready(e.ready)} · 缓冲 ${e.buffered_bytes} B · 重连 ${e.reconnect_attempts}`;
     }
   }
   pairs($('queues'), Object.entries(state.queues), 'queues');
@@ -244,7 +258,7 @@ function connect() {
 $('logout').addEventListener('click', async () => {
   try {
     const response = await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    if (!response.ok) throw new Error('登出失败，请重试');
+    if (!response.ok) throw new Error('退出登录失败，请重试');
     try { sessionStorage.removeItem('guard-write-token'); } catch { /* Already absent. */ }
     location.replace('/');
   } catch (error) { $('error').textContent = error.message; }
@@ -264,7 +278,7 @@ async function loadRules(epoch) {
     if (epoch !== generation) return;
     rulesPolicy = data.policy;
     rulesRegex = data.rules.receive.keywords_regex;
-    $('rules-policy').textContent = `策略「${data.policy}」` + (rulesRegex.length ? ` · 另有 ${rulesRegex.length} 条正则规则只在 YAML 里` : '');
+    $('rules-policy').textContent = `策略「${data.policy}」` + (rulesRegex.length ? ` · 另有 ${rulesRegex.length} 条正则规则，请到高级 YAML 编辑` : '');
     $('rules-groups').value = data.rules.receive.group_ids.join('\n');
     $('rules-users').value = data.rules.receive.user_ids.join('\n');
     $('rules-keywords').value = data.rules.receive.keywords.join('\n');
@@ -276,7 +290,7 @@ async function loadRules(epoch) {
 }
 $('rules-form').addEventListener('submit', async event => {
   event.preventDefault();
-  if (!allowEdit) { $('rules-result').textContent = '策略编辑没开（配置里 allow_policy_edit: false）'; return; }
+  if (!allowEdit) { $('rules-result').textContent = '当前为只读模式；请先在配置中开启策略编辑。'; return; }
   $('rules-save').disabled = true; $('rules-result').textContent = '正在校验并保存…'; $('rules-result').classList.remove('failed');
   try {
     const rules = {
@@ -291,7 +305,11 @@ $('rules-form').addEventListener('submit', async event => {
   finally { $('rules-save').disabled = false; }
 });
 function configField(parent, label, value, change, choices, type = 'text') {
-  const wrap = element('label', label);
+  const field = word('fields', label);
+  const wrap = element('label', field ? field[0] : label);
+  if (type === 'checkbox') wrap.className = 'config-check';
+  wrap.append(span('field-key', label === '路由 ID' ? 'id' : label));
+  if (field && field[1]) wrap.append(span('hint', field[1]));
   const input = document.createElement(choices ? 'select' : 'input');
   if (choices) for (const [key, text] of choices) { const option = element('option', text); option.value = key; input.append(option); }
   else input.type = type;
@@ -305,26 +323,26 @@ function renderConfig() {
     const cards = Object.entries(configDraft.endpoints).filter(([, e]) => e.side === side).map(([id, e]) => {
       const card = document.createElement('fieldset'); card.className = 'config-card'; card.disabled = !allowEdit || configBusy;
       card.append(element('legend', `${id} · ${e.protocol} · ${e.used ? '已被路由使用' : '未使用'}`));
-      const status = element('p', '等待运行状态'); status.id = `endpoint-state-${id}`; status.className = 'muted'; card.append(status);
+      const status = element('p', '正在读取运行状态，连接情况会自动更新。'); status.id = `endpoint-state-${id}`; status.className = 'muted'; card.append(status);
       const fields = document.createElement('div'); fields.className = 'config-fields'; card.append(fields);
       configField(fields, '连接方式', e.connection, value => {
         e.connection = value;
         if (value === 'connect') { delete e.host; delete e.port; e.url = 'ws://example.invalid'; }
         else { delete e.url; e.host = '127.0.0.1'; e.port = 3010; }
         renderConfig();
-      }, [['connect', 'connect · 网关拨出'], ['listen', 'listen · 等待连入']]);
+      }, [['connect', '网关拨出'], ['listen', '等待连入']]);
       if (e.connection === 'connect') configField(fields, 'url', e.url, value => { e.url = value; });
       else {
         configField(fields, 'host', e.host, value => { e.host = value; });
         configField(fields, 'port', e.port, value => { e.port = value; }, null, 'number');
       }
-      configField(fields, 'token_env · 环境变量名，不能填写 token', e.token_env, value => { e.token_env = value; });
+      configField(fields, 'token_env', e.token_env, value => { e.token_env = value; });
       if (side === 'upstream') {
         configField(fields, 'expected_self_id', e.expected_self_id, value => { e.expected_self_id = value; });
-        configField(fields, 'reconnect · 自动重连', e.reconnect, value => { e.reconnect = value; }, null, 'checkbox');
+        configField(fields, 'reconnect', e.reconnect, value => { e.reconnect = value; }, null, 'checkbox');
       } else {
-        configField(fields, 'principal · 应用主体', e.principal, value => { e.principal = value; });
-        configField(fields, 'readonly · 只读', e.readonly, value => { e.readonly = value; }, null, 'checkbox');
+        configField(fields, 'principal', e.principal, value => { e.principal = value; });
+        configField(fields, 'readonly', e.readonly, value => { e.readonly = value; }, null, 'checkbox');
       }
       return card;
     });
@@ -349,7 +367,7 @@ function renderConfig() {
 async function loadConfig(epoch) {
   try {
     const response = await fetch('/api/config', { cache: 'no-store', credentials: 'same-origin' });
-    if (response.status === 401) throw new Error('端点与路由编辑需要登录会话；请配置读取凭据后登录。');
+    if (response.status === 401) throw new Error('端点与路由编辑需要登录会话；请配置登录凭据后登录。');
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     if (epoch !== generation) return;
