@@ -29,7 +29,7 @@ async function fixture(t: TestContext, change: (c: Config) => void = () => {}, r
   const cfg = config(); cfg.webui.enabled = true; cfg.webui.port = 0; change(cfg);
   const directory = await mkdtemp(join(process.cwd(), 'tests', '.webui-test-'));
   const path = join(directory, 'gateway.yaml');
-  const env = { TEST_TOKEN: randomUUID(), READ_TOKEN: randomUUID(), WRITE_TOKEN: randomUUID() };
+  const env = { TEST_TOKEN: randomUUID(), READ_TOKEN: randomUUID(), WRITE_TOKEN: randomUUID(), PROXY_TOKEN: randomUUID() };
   const logs: string[] = [];
   await writeFile(path, raw ? raw(cfg) : stringify(cfg));
   let app: Awaited<ReturnType<typeof startGateway>>;
@@ -95,6 +95,26 @@ test('WebUI read auth protects every API; write token is independent and disable
   assert.equal((await h.put(stringify(h.cfg.policies))).status, 200);
   const disabled = await fixture(t);
   assert.equal((await disabled.put('{}')).status, 404);
+});
+
+test('WebUI trusted proxy header stands in for a login; a wrong or missing header still requires one', async t => {
+  const h = await fixture(t, c => {
+    editable(c);
+    c.webui.read_token_env = 'READ_TOKEN';
+    c.webui.trust_proxy_header = 'X-Test-Proxy';
+    c.webui.trust_proxy_token_env = 'PROXY_TOKEN';
+  });
+  const trusted = await fetch(h.url + '/api/state', { headers: { 'X-Test-Proxy': h.env.PROXY_TOKEN } });
+  assert.equal(trusted.status, 200); await trusted.text();
+  // 读接口开了，写接口也应随之可用（否则编辑页在门户里点了没反应）
+  assert.equal((await h.put(stringify(h.cfg.policies))).status, 200);
+  const wrong = await fetch(h.url + '/api/state', { headers: { 'X-Test-Proxy': 'WRONG_TOKEN_PLACEHOLDER' } });
+  assert.equal(wrong.status, 401); await wrong.text();
+  const none = await fetch(h.url + '/api/state');
+  assert.equal(none.status, 401); await none.text();
+  // 首页在没有匹配头时仍然是登录页
+  const home = await fetch(h.url + '/');
+  assert.match(await home.text(), /登录|token|密码/i);
 });
 
 test('WebUI credentials never appear in responses, validation errors, reload events or logs', async t => {

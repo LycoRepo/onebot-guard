@@ -94,7 +94,7 @@ export function validateConfig(v: unknown): Config {
   const obs = object(o.observability ?? {}, 'observability', ['host', 'port', 'expose_message_preview']);
   const host = str(obs.host ?? '127.0.0.1', 'observability.host');
   if (!['127.0.0.1', '::1'].includes(host)) fail('observability.host', '只读接口只能绑定回环地址 127.0.0.1 或 ::1');
-  const w = object(o.webui ?? {}, 'webui', ['enabled', 'host', 'port', 'read_token_env', 'allow_policy_edit', 'write_token_env', 'log_ring_size', 'session_ttl_minutes', 'max_sessions', 'login_attempts_per_min']);
+  const w = object(o.webui ?? {}, 'webui', ['enabled', 'host', 'port', 'read_token_env', 'allow_policy_edit', 'write_token_env', 'log_ring_size', 'session_ttl_minutes', 'max_sessions', 'login_attempts_per_min', 'trust_proxy_header', 'trust_proxy_token_env']);
   const webui: Config['webui'] = {
     enabled: bool(w.enabled, 'webui.enabled', false), host: str(w.host ?? '127.0.0.1', 'webui.host'),
     port: num(w.port, 'webui.port', 3012, 0, 65535),
@@ -106,6 +106,8 @@ export function validateConfig(v: unknown): Config {
     ...(w.session_ttl_minutes === undefined ? {} : { session_ttl_minutes: num(w.session_ttl_minutes, 'webui.session_ttl_minutes', 720, 5, 43200) }),
     ...(w.max_sessions === undefined ? {} : { max_sessions: num(w.max_sessions, 'webui.max_sessions', 64, 1, 1024) }),
     ...(w.login_attempts_per_min === undefined ? {} : { login_attempts_per_min: num(w.login_attempts_per_min, 'webui.login_attempts_per_min', 10, 0, 1000) }),
+    ...(w.trust_proxy_header == null ? {} : { trust_proxy_header: str(w.trust_proxy_header, 'webui.trust_proxy_header') }),
+    ...(w.trust_proxy_token_env == null ? {} : { trust_proxy_token_env: envName(w.trust_proxy_token_env, 'webui.trust_proxy_token_env') }),
   };
   if (!['127.0.0.1', '::1'].includes(webui.host) && !webui.read_token_env) fail('webui.read_token_env', 'webui.host 非回环时必须声明读取凭据环境变量');
   // 策略编辑由登录会话授权；write_token_env 只是给脚本/命令行调 API 的可选凭据。

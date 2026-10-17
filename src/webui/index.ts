@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Config, Policy } from '../config/types.ts';
 import type { PolicyReloader } from '../config/reload.ts';
 import type { Observability } from '../observability/index.ts';
@@ -37,6 +37,7 @@ export class WebUI {
   private streams = new Set<ServerResponse>();
   private sessionStreams = new Map<ServerResponse, string>();
   private sessions: Sessions;
+  private proxyToken: string | undefined;
   private restart: (() => void) | undefined;
   private restartTimer: NodeJS.Timeout | undefined;
   private restartPending = false;
@@ -48,6 +49,7 @@ export class WebUI {
     if (config.webui.enabled) {
       if (config.webui.read_token_env) this.readToken = credential(env, config.webui.read_token_env);
       if (config.webui.allow_policy_edit && config.webui.write_token_env) this.writeToken = credential(env, config.webui.write_token_env);
+      if (config.webui.trust_proxy_token_env) this.proxyToken = credential(env, config.webui.trust_proxy_token_env);
     }
   }
   state() {
@@ -67,6 +69,18 @@ export class WebUI {
   private json(res: ServerResponse, status: number, body: unknown): void {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(this.redact(JSON.stringify(body)));
+  }
+  /**
+   * 可信反代：门户（外层反代）转发请求时会加一个只有它知道的头。
+   * 带了正确头的请求视为已登录，免去在面板里再输一次密码；
+   * 直连本端口、没有这个头的请求照旧要 token。
+   */
+  private trustedProxy(req: IncomingMessage): boolean {
+    const header = this.config.webui.trust_proxy_header;
+    if (!header || !this.proxyToken) return false;
+    const given = req.headers[header.toLowerCase()];
+    if (typeof given !== 'string' || given.length !== this.proxyToken.length) return false;
+    return timingSafeEqual(Buffer.from(given), Buffer.from(this.proxyToken));
   }
   private loginPage(res: ServerResponse): void {
     // Match the browser's HTML newline normalization before hashing and serving.
@@ -146,7 +160,7 @@ export class WebUI {
     const asset = assets.get(path);
     if (!asset && !login && !logout && !['/api/state', '/api/policies', '/api/rules', '/api/logs', '/api/config'].includes(path)) { this.json(res, 404, { ok: false, error: '接口不存在' }); return; }
     const session = sessionCookie(req.headers.cookie);
-    const hasSession = this.sessions.valid(session);
+    const hasSession = this.sessions.valid(session) || this.trustedProxy(req);
     const canRead = hasSession || this.readToken === undefined || authorized(req.headers.authorization, this.readToken);
     if (path === '/api/config' && !hasSession) { this.json(res, 401, { ok: false, error: '认证失败，请先登录' }); return; }
     if (path === '/api/config' && req.headers.origin !== undefined && req.headers.origin !== `http://${req.headers.host}`) {
