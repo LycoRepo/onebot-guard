@@ -3,37 +3,64 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OneBot Guard · 登录</title>
+  <title>网关运维面板 · 登录</title>
   <style>
-    :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
-    body { margin: 12vh auto; padding: 1.5rem; max-width: 24rem; }
-    label, input, button { display: block; margin: 1rem 0; }
-    input { box-sizing: border-box; width: 100%; padding: .75rem; }
-    button { padding: .65rem 1.25rem; cursor: pointer; }
-    #login-error { min-height: 1.5em; }
+    :root { color-scheme: dark; font: 15px/1.7 system-ui, "Microsoft YaHei", sans-serif; background: #0c121b; color: #e6edf6; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; min-height: 100svh; display: grid; place-items: center; padding: 24px 16px; }
+    main { width: 100%; max-width: 420px; padding: 32px; background: #141e2b; border: 1px solid #344459; border-top: 3px solid #88b7ff; border-radius: 18px; box-shadow: 0 24px 64px #0003; }
+    .eyebrow { margin: 0 0 8px; font-size: 12px; letter-spacing: .12em; color: #88b7ff; }
+    h1 { font-size: 25px; line-height: 1.4; margin: 0 0 12px; }
+    .hint { margin: 0 0 24px; color: #acbbce; font-size: 13px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    input, button { display: block; width: 100%; min-width: 0; min-height: 46px; font: inherit; border-radius: 9px; }
+    input { padding: 10px 12px; background: #101925; border: 1px solid #63758e; color: #e6edf6; }
+    input::placeholder { color: #9aabc2; }
+    input[aria-invalid=true] { border-color: #ff9aab; }
+    button { margin-top: 20px; padding: 10px 16px; background: #88b7ff; color: #08111f; border: 1px solid #88b7ff; font-weight: 600; cursor: pointer; }
+    button:hover { background: #a8c9ff; }
+    button:disabled { background: #273449; color: #acbbce; border-color: #44546b; cursor: wait; }
+    :focus-visible { outline: 3px solid #88b7ff; outline-offset: 4px; }
+    #login-error { margin: 18px 0 0; color: #ff9aab; overflow-wrap: anywhere; font-size: 13px; }
+    #login-error:empty { display: none; }
+    #login-status { min-height: 1.7em; margin: 12px 0 0; color: #acbbce; font-size: 13px; }
+    @media (max-width: 420px) { main { padding: 24px; } }
   </style>
 </head>
 <body>
-  <h1>OneBot Guard 登录</h1>
+  <main aria-labelledby="login-title">
+  <p class="eyebrow">策略网关</p>
+  <h1 id="login-title">登录运维面板</h1>
+  <p class="hint" id="login-help">使用登录凭据查看运行状态与管理策略。会话过期后需重新登录。</p>
   <form id="login-form">
     <label for="login-token">登录凭据</label>
-    <input id="login-token" type="password" autocomplete="off" spellcheck="false" required>
+    <input id="login-token" type="password" autocomplete="off" spellcheck="false" aria-describedby="login-help login-error" placeholder="请输入登录凭据" required>
     <button id="login-submit" type="submit">登录</button>
   </form>
   <p id="login-error" role="alert"></p>
+  <p id="login-status" role="status" aria-live="polite">请输入凭据后登录。</p>
+  </main>
   <script>
     document.getElementById('login-form').addEventListener('submit', async event => {
       event.preventDefault();
       const error = document.getElementById('login-error');
+      const button = document.getElementById('login-submit');
+      const token = document.getElementById('login-token');
+      const status = document.getElementById('login-status');
       error.textContent = '';
+      button.disabled = true;
+      button.textContent = '正在登录…';
+      status.textContent = '正在验证登录凭据，请稍候。';
+      token.removeAttribute('aria-invalid');
       try {
         const response = await fetch('/api/login', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: document.getElementById('login-token').value })
         });
-        if (response.ok) location.replace('/');
-        else error.textContent = (await response.json()).error || '登录失败，请重试';
+        if (response.ok) { status.textContent = '登录成功，正在进入面板…'; location.replace('/'); }
+        else { error.textContent = (await response.json()).error || '登录失败，请重试'; token.setAttribute('aria-invalid', 'true'); token.focus(); }
       } catch { error.textContent = '无法连接，请稍后重试'; }
+      finally { button.disabled = false; button.textContent = '登录'; if (error.textContent) status.textContent = '登录未完成，请检查提示后重试。'; }
     });
   </script>
 </body>

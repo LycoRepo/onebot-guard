@@ -47,6 +47,18 @@ test('Overview and runtime route table use the same readiness and decision words
   assert.deepEqual(get('routes').children[0]!.children.slice(1, 4).map(n => n.textContent), ['已就绪', '未就绪', '未就绪']);
 });
 
+test('Overview distinguishes connected sessions from ready routes and shows empty runtime routes', () => {
+  const { get, run } = panel();
+  run(`render({ healthy: false, started_at: null, last_event_at: null, totals: { allowed: 0, denied: 0 }, endpoints: { a: { side: 'upstream', connected: true, ready: false }, b: { side: 'downstream', connected: false, ready: false } }, routes: [{ id: 'r', ready: false, upstream_ready: false, downstream_ready: false, pending_requests: 0 }], policies: ['p', 'q'], queues: {}, hits_by_rule: {}, transport_issues: {}, allow_policy_edit: false, log_ring_size: 200, reload: null })`);
+  assert.equal(get('session-summary').textContent, '上游已连接1 / 1下游已连接0 / 1路由已就绪0 / 1');
+  assert.equal(get('policy-summary').textContent, '已加载策略2编辑权限只读模式重载状态尚未重载');
+  assert.equal(get('overview').firstChild.lastChild.className, 'warn');
+  run(`render({ healthy: true, started_at: null, last_event_at: null, totals: { allowed: 0, denied: 0 }, endpoints: {}, routes: [], policies: [], queues: {}, hits_by_rule: {}, transport_issues: {}, allow_policy_edit: true, log_ring_size: 200, reload: { ok: false } })`);
+  assert.match(get('routes').textContent, /暂无运行路由/);
+  assert.match(get('policy-summary').textContent, /已加载策略0编辑权限可编辑重载状态重载失败/);
+  assert.equal(get('overview').firstChild.lastChild.className, 'ok');
+});
+
 test('Field labels put Chinese first and keep keys and credential guidance separate', () => {
   const { get, run } = panel();
   run(`configField($('fields'), 'token_env', 'ENDPOINT_TOKEN', () => {})`);

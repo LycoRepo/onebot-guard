@@ -203,14 +203,21 @@ async function api(path, options = {}) {
 function reload(result) { $('reload-status').textContent = result ? `${time(result.time)} · ${result.ok ? '重载成功' : '重载失败'} · ${result.reason}` : '尚未重载'; }
 function render(state) {
   runtimeState = state;
-  $('connection').className = 'pill'; $('connection').textContent = '面板已连接';
+  $('connection').className = 'pill good'; $('connection').textContent = '面板已连接';
   pairs($('overview'), [['网关状态', ready(state.healthy)], ['启动时间', time(state.started_at)], ['最后事件', time(state.last_event_at)], ['放行', state.totals.allowed], ['拦下', state.totals.denied]]);
+  $('overview').firstChild.lastChild.className = state.healthy ? 'ok' : 'warn';
+  const endpoints = Object.values(state.endpoints);
+  if ($('policy-summary')) pairs($('policy-summary'), [['已加载策略', (state.policies ?? []).length], ['编辑权限', state.allow_policy_edit ? '可编辑' : '只读模式'], ['重载状态', state.reload ? (state.reload.ok ? '重载成功' : '重载失败') : '尚未重载']]);
+  if ($('session-summary')) pairs($('session-summary'), [['上游已连接', `${endpoints.filter(e => e.side === 'upstream' && e.connected).length} / ${endpoints.filter(e => e.side === 'upstream').length}`], ['下游已连接', `${endpoints.filter(e => e.side === 'downstream' && e.connected).length} / ${endpoints.filter(e => e.side === 'downstream').length}`], ['路由已就绪', `${state.routes.filter(r => r.ready).length} / ${state.routes.length}`]]);
   $('routes').replaceChildren(...state.routes.map(route => {
     const cell = (text, cls) => { const td = element('td', text); if (cls) td.className = cls; return td; };
     const row = document.createElement('tr');
-    row.append(cell(route.id, 'mono'), cell(ready(route.upstream_ready), route.upstream_ready ? 'ok' : ''), cell(ready(route.downstream_ready), route.downstream_ready ? 'ok' : ''), cell(ready(route.ready), route.ready ? 'ok' : ''), cell(route.pending_requests));
+    row.append(cell(route.id, 'mono'), cell(ready(route.upstream_ready), route.upstream_ready ? 'ok' : 'warn'), cell(ready(route.downstream_ready), route.downstream_ready ? 'ok' : 'warn'), cell(ready(route.ready), route.ready ? 'ok' : 'warn'), cell(route.pending_requests));
     return row;
   }));
+  if (!state.routes.length) {
+    const row = document.createElement('tr'); const cell = element('td', '暂无运行路由；可在配置中添加路由。'); cell.colSpan = 5; cell.className = 'empty'; row.append(cell); $('routes').append(row);
+  }
   if (!configDraft) {
     const sides = { upstream: [], downstream: [] };
     for (const [name, endpoint] of Object.entries(state.endpoints)) sides[endpoint.side === 'upstream' ? 'upstream' : 'downstream'].push([name, endpoint]);
@@ -240,7 +247,7 @@ function render(state) {
 }
 async function poll(epoch) {
   try { const state = await api('/api/state'); if (epoch !== generation) return; render(state); $('error').textContent = ''; }
-  catch (error) { if (epoch !== generation) return; $('connection').className = 'pill bad'; $('connection').textContent = '面板连接中断'; $('error').textContent = error.message; }
+  catch (error) { if (epoch !== generation) return; $('connection').className = 'pill bad'; $('connection').textContent = '面板连接中断'; $('error').textContent = `状态读取失败，将自动重试。${error.message}`; }
   if (epoch === generation) pollTimer = setTimeout(() => poll(epoch), 3000);
 }
 async function loadPolicies(epoch) {
@@ -249,8 +256,9 @@ async function loadPolicies(epoch) {
     $('policy-yaml').value = data.yaml; $('policy-yaml').readOnly = !data.allow_policy_edit;
     $('edit-controls').hidden = !data.allow_policy_edit;
     $('policy-result').textContent = data.allow_policy_edit ? '可编辑' : '只读模式';
+    $('policy-result').classList.remove('failed');
     reload(data.reload);
-  } catch (error) { if (epoch === generation) $('policy-result').textContent = error.message; }
+  } catch (error) { if (epoch === generation) { $('policy-result').textContent = `策略读取失败，请刷新页面重试。${error.message}`; $('policy-result').classList.add('failed'); } }
 }
 async function logs(signal) {
   while (!signal.aborted) {
@@ -280,7 +288,7 @@ async function logs(signal) {
         }
       } finally { await reader.cancel(); reader.releaseLock(); }
       if (!signal.aborted) $('stream-status').textContent = '流已断开，稍后重连';
-    } catch (error) { if (signal.aborted) return; $('stream-status').textContent = error.message; }
+    } catch (error) { if (signal.aborted) return; $('stream-status').textContent = `日志连接失败，稍后自动重连。${error.message}`; }
     await new Promise(resolve => {
       const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve(); };
       const timer = setTimeout(finish, 3000); signal.addEventListener('abort', finish, { once: true });
@@ -322,6 +330,8 @@ async function loadRules(epoch) {
     $('rules-send-users').value = data.rules.send.user_ids.join('\n');
     checks('rules-blocked', SEGMENT_CHOICES, data.rules.receive.blocked_segments);
     checks('rules-send-types', SEND_TYPE_CHOICES, data.rules.send.segments);
+    $('rules-result').classList.remove('failed');
+    $('rules-result').textContent = allowEdit ? '规则已加载；保存后立即重载策略。' : '规则已加载；当前为只读模式。';
   } catch (error) { $('rules-result').textContent = error.message; $('rules-result').classList.add('failed'); }
 }
 $('rules-form').addEventListener('submit', async event => {
@@ -716,6 +726,7 @@ function renderConfig() {
 function routeEditor() {
   const rows = configDraft.routes.map((route, index) => {
     const row = document.createElement('fieldset'); row.className = 'config-card config-fields'; row.disabled = !allowEdit || configBusy;
+    row.append(element('legend', `路由 ${index + 1}${route.id ? ` · ${route.id}` : ' · 待填写'}`));
     configField(row, '路由 ID', route.id, value => { route.id = value; touchDraft(); });
     for (const key of ['upstream', 'downstream', 'policy']) {
       const names = key === 'policy' ? configDraft.policies : sideIds(key);
@@ -725,6 +736,7 @@ function routeEditor() {
     addListenerIf(remove, 'click', () => { configDraft.routes.splice(index, 1); touchDraft(); renderConfig(); }); row.append(remove); return row;
   });
   $('route-editor').replaceChildren(...rows);
+  if (!rows.length) { const empty = element('p', '暂无路由；添加路由以关联上游、下游与策略。'); empty.className = 'empty'; $('route-editor').append(empty); }
   $('route-add').hidden = !allowEdit; $('route-add').disabled = configBusy;
 }
 async function loadConfig(epoch) {
@@ -852,7 +864,11 @@ function route() {
   document.body.dataset.page = page;
   $('config-controls').hidden = !['endpoints', 'routes'].includes(page);
   const tools = $('endpoint-tools'); if (tools) tools.hidden = page !== 'endpoints';
-  for (const link of document.querySelectorAll('nav a')) link.classList.toggle('active', link.dataset.page === page);
+  for (const link of document.querySelectorAll('nav a')) {
+    const active = link.dataset.page === page;
+    link.classList.toggle('active', active);
+    setAttributeIf(link, 'aria-current', active ? 'page' : 'false');
+  }
 }
 window.addEventListener('hashchange', route);
 route();

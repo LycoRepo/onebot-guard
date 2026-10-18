@@ -68,13 +68,17 @@ test('Served login script submits JSON, displays failure safely, handles network
   const h = await fixture(t);
   const html = await (await h.get('/')).text(); const script = html.match(/<script>([\s\S]*?)<\/script>/)![1]!;
   let submit: ((event: { preventDefault(): void }) => Promise<void>) | undefined;
-  const input = { value: 'WRONG_TOKEN_PLACEHOLDER' }; const error = { textContent: '' };
+  const attributes = new Map<string, string>(); let focused = false;
+  const input = { value: 'WRONG_TOKEN_PLACEHOLDER', setAttribute: (key: string, value: string) => attributes.set(key, value), removeAttribute: (key: string) => attributes.delete(key), focus: () => { focused = true; } };
+  const error = { textContent: '' }; const button = { disabled: false, textContent: '登录' }; const status = { textContent: '' };
   const destinations: string[] = []; let cookie = ''; let offline = false; let prevented = 0;
   const requests: { path: string; options: RequestInit }[] = [];
   runInNewContext(script, {
     document: { getElementById: (id: string) => {
       if (id === 'login-token') return input;
       if (id === 'login-error') return error;
+      if (id === 'login-submit') return button;
+      if (id === 'login-status') return status;
       assert.equal(id, 'login-form');
       return { addEventListener: (event: string, handler: typeof submit) => { assert.equal(event, 'submit'); submit = handler; } };
     } },
@@ -90,10 +94,13 @@ test('Served login script submits JSON, displays failure safely, handles network
   assert.ok(submit);
   const event = { preventDefault: () => { prevented++; } };
   await submit(event); assert.equal(error.textContent, '认证失败'); assert.deepEqual(destinations, []);
+  assert.equal(attributes.get('aria-invalid'), 'true'); assert.equal(focused, true);
+  assert.equal(button.disabled, false); assert.equal(button.textContent, '登录');
   assert.equal(error.textContent.includes(input.value), false);
   offline = true; await submit(event); assert.equal(error.textContent, '无法连接，请稍后重试'); assert.deepEqual(destinations, []);
   offline = false; input.value = h.env.READ_TOKEN; await submit(event);
   assert.equal(error.textContent, ''); assert.deepEqual(destinations, ['/']); assert.equal(prevented, 3);
+  assert.equal(attributes.has('aria-invalid'), false); assert.match(status.textContent, /登录成功/);
   for (const request of requests) {
     assert.equal(request.path, '/api/login'); assert.equal(request.options.method, 'POST');
     assert.equal(new Headers(request.options.headers).get('content-type'), 'application/json');
