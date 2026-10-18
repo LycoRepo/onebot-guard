@@ -31,14 +31,14 @@
   <main aria-labelledby="login-title">
   <p class="eyebrow">策略网关</p>
   <h1 id="login-title">登录运维面板</h1>
-  <p class="hint" id="login-help">使用登录凭据查看运行状态与管理策略。会话过期后需重新登录。</p>
+  <p class="hint" id="login-help">请输入登录凭据以访问面板。登录会话过期后需重新登录。</p>
   <form id="login-form">
     <label for="login-token">登录凭据</label>
     <input id="login-token" type="password" autocomplete="off" spellcheck="false" aria-describedby="login-help login-error" placeholder="请输入登录凭据" required>
     <button id="login-submit" type="submit">登录</button>
   </form>
   <p id="login-error" role="alert"></p>
-  <p id="login-status" role="status" aria-live="polite">请输入凭据后登录。</p>
+  <p id="login-status" role="status" aria-live="polite">请输入登录凭据。</p>
   </main>
   <script>
     document.getElementById('login-form').addEventListener('submit', async event => {
@@ -50,7 +50,7 @@
       error.textContent = '';
       button.disabled = true;
       button.textContent = '正在登录…';
-      status.textContent = '正在验证登录凭据，请稍候。';
+      status.textContent = '正在验证登录凭据…';
       token.removeAttribute('aria-invalid');
       try {
         const response = await fetch('/api/login', {
@@ -60,7 +60,7 @@
         if (response.ok) { status.textContent = '登录成功，正在进入面板…'; location.replace('/'); }
         else { error.textContent = (await response.json()).error || '登录失败，请重试'; token.setAttribute('aria-invalid', 'true'); token.focus(); }
       } catch { error.textContent = '无法连接，请稍后重试'; }
-      finally { button.disabled = false; button.textContent = '登录'; if (error.textContent) status.textContent = '登录未完成，请检查提示后重试。'; }
+      finally { button.disabled = false; button.textContent = '登录'; if (error.textContent) status.textContent = '请按错误提示重试。'; }
     });
   </script>
 </body>

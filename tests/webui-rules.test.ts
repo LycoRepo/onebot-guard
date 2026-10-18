@@ -61,7 +61,7 @@ test('规则接口把策略读成表单，并原样回读', async t => {
   const named = await h.get('/api/rules?policy=main', cookie); assert.equal(named.status, 200);
   assert.equal((await named.json() as { policy: string }).policy, 'main');
   const missing = await h.get('/api/rules?policy=absent', cookie); assert.equal(missing.status, 400);
-  assert.equal(await missing.text(), JSON.stringify({ ok: false, error: '策略 absent 不存在' }));
+  assert.equal(await missing.text(), JSON.stringify({ ok: false, error: '未找到指定策略：absent' }));
   assert.equal((await h.get('/api/rules')).status, 401);
 });
 

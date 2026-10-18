@@ -41,7 +41,7 @@ test('Connection and readiness stay distinct for every combination of runtime st
 test('Overview and runtime route table use the same readiness and decision words', () => {
   const { get, run } = panel();
   run(`render({ healthy: false, started_at: '2026-01-01T00:00:00Z', last_event_at: null, totals: { allowed: 7, denied: 3 }, endpoints: {}, routes: [{ id: 'ROUTE_ALLOWED', upstream_ready: true, downstream_ready: false, ready: false, pending_requests: 0 }], queues: {}, hits_by_rule: {}, transport_issues: {}, allow_policy_edit: false, log_ring_size: 200, reload: null })`);
-  assert.match(get('overview').textContent, /网关状态未就绪.*放行7拦下3/);
+  assert.match(get('overview').textContent, /网关状态未就绪.*累计放行（次，非送达数）7累计拦下（次）3/);
   const date = get('overview').children[1]!.lastChild;
   assert.equal(date.title, date.textContent, 'a shortened date must retain its full value');
   assert.deepEqual(get('routes').children[0]!.children.slice(1, 4).map(n => n.textContent), ['已就绪', '未就绪', '未就绪']);
@@ -50,12 +50,12 @@ test('Overview and runtime route table use the same readiness and decision words
 test('Overview distinguishes connected sessions from ready routes and shows empty runtime routes', () => {
   const { get, run } = panel();
   run(`render({ healthy: false, started_at: null, last_event_at: null, totals: { allowed: 0, denied: 0 }, endpoints: { a: { side: 'upstream', connected: true, ready: false }, b: { side: 'downstream', connected: false, ready: false } }, routes: [{ id: 'r', ready: false, upstream_ready: false, downstream_ready: false, pending_requests: 0 }], policies: ['p', 'q'], queues: {}, hits_by_rule: {}, transport_issues: {}, allow_policy_edit: false, log_ring_size: 200, reload: null })`);
-  assert.equal(get('session-summary').textContent, '上游已连接1 / 1下游已连接0 / 1路由已就绪0 / 1');
-  assert.equal(get('policy-summary').textContent, '已加载策略2编辑权限只读模式重载状态尚未重载');
+  assert.equal(get('session-summary').textContent, '上游会话（已连接 / 总端点）1 / 1下游会话（已连接 / 总端点）0 / 1路由（已就绪 / 总数）0 / 1');
+  assert.equal(get('policy-summary').textContent, '已加载策略（份，至少 1）2编辑权限只读模式策略加载状态尚无重新加载记录');
   assert.equal(get('overview').firstChild.lastChild.className, 'warn');
   run(`render({ healthy: true, started_at: null, last_event_at: null, totals: { allowed: 0, denied: 0 }, endpoints: {}, routes: [], policies: [], queues: {}, hits_by_rule: {}, transport_issues: {}, allow_policy_edit: true, log_ring_size: 200, reload: { ok: false } })`);
   assert.match(get('routes').textContent, /暂无运行路由/);
-  assert.match(get('policy-summary').textContent, /已加载策略0编辑权限可编辑重载状态重载失败/);
+  assert.match(get('policy-summary').textContent, /已加载策略（份，至少 1）0编辑权限可编辑策略加载状态策略加载失败/);
   assert.equal(get('overview').firstChild.lastChild.className, 'ok');
 });
 
@@ -76,8 +76,8 @@ test('Log sources use the shared glossary while backend reasons and unknown code
   const { get, run } = panel();
   const row = run(`logRow({ event: 'allowed', direction: 'response', rule: 'response.correlated', time: '2026-01-01T00:00:00Z' })`);
   assert.equal(row.children[1].textContent, '放行');
-  assert.equal(row.children[2].textContent, '上游回包');
-  assert.match(row.children[3].textContent, /回包已送回/);
+  assert.equal(row.children[2].textContent, '上游响应');
+  assert.match(row.children[3].textContent, /响应转发放行/);
   assert.equal(run(`human('sources', 'NEW_SOURCE')`), 'NEW_SOURCE');
   assert.equal(run(`human('rules', 'NEW_RULE')`), 'NEW_RULE');
   assert.equal(run(`human('rules', 'NEW_RULE', 'FALLBACK')`), 'FALLBACK');

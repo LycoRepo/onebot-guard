@@ -104,11 +104,11 @@ export class WebUI {
         else chunks.push(chunk);
       });
       req.once('end', () => {
-        if (bytes > MAX_BODY) reject(new PolicyError('请求体超过 1 MiB 上限'));
+        if (bytes > MAX_BODY) reject(new PolicyError('提交内容超过 1 MiB 上限'));
         else resolve(Buffer.concat(chunks).toString('utf8'));
       });
-      req.once('error', () => reject(new PolicyError('请求体读取失败')));
-      req.once('aborted', () => reject(new PolicyError('请求已断开')));
+      req.once('error', () => reject(new PolicyError('无法读取提交内容，请重试')));
+      req.once('aborted', () => reject(new PolicyError('请求连接已断开，请重试')));
     });
   }
   private closeInvalidStreams(): void {
@@ -150,36 +150,36 @@ export class WebUI {
     const writing = req.method === 'PUT' && ['/api/policies', '/api/rules', '/api/config'].includes(path);
     const login = req.method === 'POST' && path === '/api/login';
     const logout = req.method === 'POST' && path === '/api/logout';
-    if (writing && !this.config.webui.allow_policy_edit) { this.json(res, 404, { ok: false, error: '写接口未启用' }); return; }
-    if (login && !this.config.webui.read_token_env) { this.json(res, 404, { ok: false, error: '登录未启用' }); return; }
+    if (writing && !this.config.webui.allow_policy_edit) { this.json(res, 404, { ok: false, error: '配置编辑未启用' }); return; }
+    if (login && !this.config.webui.read_token_env) { this.json(res, 404, { ok: false, error: '面板登录未启用' }); return; }
     if ((['/api/login', '/api/logout'].includes(path) && req.method !== 'POST') || (req.method !== 'GET' && !writing && !login && !logout)) {
       const editable = ['/api/policies', '/api/rules', '/api/config'].includes(path) && this.config.webui.allow_policy_edit;
       res.setHeader('Allow', ['/api/login', '/api/logout'].includes(path) ? 'POST' : editable ? 'GET, PUT' : 'GET');
-      this.json(res, 405, { ok: false, error: '不支持此方法' }); return;
+      this.json(res, 405, { ok: false, error: '请求方式不受支持' }); return;
     }
     const asset = assets.get(path);
-    if (!asset && !login && !logout && !['/api/state', '/api/policies', '/api/rules', '/api/logs', '/api/config'].includes(path)) { this.json(res, 404, { ok: false, error: '接口不存在' }); return; }
+    if (!asset && !login && !logout && !['/api/state', '/api/policies', '/api/rules', '/api/logs', '/api/config'].includes(path)) { this.json(res, 404, { ok: false, error: '请求的页面或接口不存在' }); return; }
     const session = sessionCookie(req.headers.cookie);
     const hasSession = this.sessions.valid(session) || this.trustedProxy(req);
     const canRead = hasSession || this.readToken === undefined || authorized(req.headers.authorization, this.readToken);
-    if (path === '/api/config' && !hasSession) { this.json(res, 401, { ok: false, error: '认证失败，请先登录' }); return; }
+    if (path === '/api/config' && !hasSession) { this.json(res, 401, { ok: false, error: '登录验证未通过，请重新登录' }); return; }
     if (path === '/api/config' && req.headers.origin !== undefined && req.headers.origin !== `http://${req.headers.host}`) {
-      this.json(res, 403, { ok: false, error: '不允许跨源请求' }); return;
+      this.json(res, 403, { ok: false, error: '请求来源不符，请从面板操作' }); return;
     }
     // 策略编辑：登录会话即可写；另外保留了可选写凭据，供脚本/命令行调 API。
     if (writing && !hasSession && !(this.writeToken && authorized(req.headers.authorization, this.writeToken))) {
-      this.json(res, 401, { ok: false, error: '认证失败，请先登录' }); return;
+      this.json(res, 401, { ok: false, error: '登录验证未通过，请重新登录' }); return;
     }
     if (!writing && !login && !logout && !canRead && path !== '/') {
-      this.json(res, 401, { ok: false, error: '认证失败，请先登录' }); return;
+      this.json(res, 401, { ok: false, error: '登录验证未通过，请重新登录' }); return;
     }
     if (writing || login || logout) {
       // Compare the browser origin to the HTTP authority; never trust forwarded headers.
       if (req.headers.origin !== undefined && req.headers.origin !== `http://${req.headers.host}`) {
-        this.json(res, 403, { ok: false, error: '不允许跨源请求' }); return;
+        this.json(res, 403, { ok: false, error: '请求来源不符，请从面板操作' }); return;
       }
       if (req.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
-        this.json(res, 415, { ok: false, error: 'Content-Type 必须是 application/json' }); return;
+        this.json(res, 415, { ok: false, error: '请以 JSON 格式提交内容' }); return;
       }
     }
     try {
@@ -197,7 +197,7 @@ export class WebUI {
         // Recheck after reading: concurrent requests must not bypass the failure budget.
         if (this.sessions.limited(ip)) { this.json(res, 429, { ok: false, error: '登录失败次数过多，请稍后重试' }); return; }
         if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || !('token' in body) || typeof body.token !== 'string' || !this.readToken || !authorized(`Bearer ${body.token}`, this.readToken)) {
-          this.sessions.failed(ip); this.json(res, 401, { ok: false, error: '认证失败' }); return;
+          this.sessions.failed(ip); this.json(res, 401, { ok: false, error: '登录凭据无效，请重新输入' }); return;
         }
         this.sessions.remove(session);
         const id = this.sessions.create(); this.closeInvalidStreams();
@@ -214,21 +214,21 @@ export class WebUI {
         const parsed = this.policies.get().parsed as Record<string, Policy>;
         const names = Object.keys(parsed);
         const wanted = new URL(req.url ?? '/', 'http://internal').searchParams.get('policy') ?? names[0]!;
-        if (!parsed[wanted]) throw new PolicyError(`策略 ${wanted} 不存在`);
+        if (!parsed[wanted]) throw new PolicyError(`未找到指定策略：${wanted}`);
         this.json(res, 200, { policies: names, policy: wanted, rules: readRules(parsed[wanted]!), reload: this.reloader.lastResult });
         return;
       }
       if (!writing) { this.json(res, 200, { ...this.policies.get(), reload: this.reloader.lastResult, allow_policy_edit: this.config.webui.allow_policy_edit }); return; }
       if (req.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
-        this.json(res, 415, { ok: false, error: 'Content-Type 必须是 application/json' }); return;
+        this.json(res, 415, { ok: false, error: '请以 JSON 格式提交内容' }); return;
       }
       const raw = await this.body(req);
       let body: unknown;
-      try { body = JSON.parse(raw); } catch { throw new PolicyError('请求体必须是有效 JSON'); }
+      try { body = JSON.parse(raw); } catch { throw new PolicyError('提交内容不是有效的 JSON'); }
       if (path === '/api/config') {
         if (this.restartPending) throw new PolicyError('网关正在重启，请稍后重新登录');
         if (body && typeof body === 'object' && 'restart' in body && body.restart === true && !this.restart) {
-          throw new PolicyError('重启钩子未配置，请保存后手动重启');
+          throw new PolicyError('自动重启未启用，请保存后手动重启');
         }
         const restart = this.configuration.save(body);
         if (restart) {
@@ -239,28 +239,28 @@ export class WebUI {
           });
         }
         this.json(res, restart ? 202 : 200, { ok: true, restart, restart_required: true,
-          message: restart ? '已保存，正在重启；端点与路由改动重启后生效' : '改动已保存，端点与路由重启后生效' });
+          message: restart ? '配置已保存，正在重启网关' : '配置已保存，重启网关后生效' });
         return;
       }
       if (path === '/api/rules') {
-        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PolicyError('请求体必须是对象');
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PolicyError('提交内容必须是 JSON 对象');
         const { policy: wanted, rules } = body as { policy?: unknown; rules?: unknown };
-        if (typeof wanted !== 'string') throw new PolicyError('缺少 policy 字段');
+        if (typeof wanted !== 'string') throw new PolicyError('未指定策略，请选择策略');
         const parsed = this.policies.get().parsed as Record<string, Policy>;
-        if (!parsed[wanted]) throw new PolicyError(`策略 ${wanted} 不存在`);
+        if (!parsed[wanted]) throw new PolicyError(`未找到指定策略：${wanted}`);
         let next: Policy;
         try { next = writeRules(parsed[wanted]!, parseRules(rules)); }
-        catch (error) { throw new PolicyError(error instanceof Error ? error.message : '规则无法解析'); }
+        catch (error) { throw new PolicyError(error instanceof Error ? error.message : '规则格式有误，请检查后重试'); }
         this.json(res, 200, this.policies.save(stringify({ ...parsed, [wanted]: next }, { aliasDuplicateObjects: false })));
         return;
       }
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || !('policies' in body) || typeof body.policies !== 'string') {
-        throw new PolicyError('请求体仅允许 policies 字符串字段');
+        throw new PolicyError('仅可提交文本格式的策略内容');
       }
       this.json(res, 200, this.policies.save(body.policies));
     } catch (error) {
       res.setHeader('Connection', 'close');
-      this.json(res, error instanceof PolicyError ? 400 : 500, { ok: false, error: error instanceof PolicyError ? error.message : 'WebUI 请求处理失败' });
+      this.json(res, error instanceof PolicyError ? 400 : 500, { ok: false, error: error instanceof PolicyError ? error.message : '面板请求处理失败，请稍后重试' });
     }
   }
   async start(): Promise<void> {

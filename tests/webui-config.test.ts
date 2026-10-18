@@ -92,7 +92,7 @@ for (const flow of [false, true]) test(`Saving config replaces only endpoints an
   const h = await fixture(t, true, true, flow); const body = h.body();
   body.endpoints.downA!.port = 42001; body.routes[0]!.id = 'updated_route';
   const response = await h.put(body); assert.equal(response.status, 200);
-  assert.match((await response.json() as { message: string }).message, /重启后生效/);
+  assert.match((await response.json() as { message: string }).message, /重启网关后生效/);
   const updated = await readFile(h.path, 'utf8'); assert.notEqual(updated, h.raw);
   assert.deepEqual(outsideNodes(updated).map(s => Buffer.from(s)), outsideNodes(h.raw).map(s => Buffer.from(s)));
   assert.equal(loadConfig(h.path).endpoints.downA!.port, 42001); assert.equal(loadConfig(h.path).routes[0]!.id, 'updated_route');
@@ -229,7 +229,7 @@ test('Native panel forms submit shared drafts and keep restart notice readable f
   assert.match(getNode('config-result').textContent, /endpoints.up.expected_self_id/); assert.equal(getNode('config-save').disabled, false);
   const saving = runInContext("configDraft.endpoints.up.expected_self_id = 'ACCOUNT_A'; configDraft.endpoints.downA.port = 42001; saveConfig(false)", context);
   assert.equal(getNode('config-save').disabled, true); assert.equal(getNode('config-restart').disabled, true);
-  await saving; assert.match(getNode('config-result').textContent, /重启后生效/); assert.equal(h.counts().restarts, 0);
+  await saving; assert.match(getNode('config-result').textContent, /重启网关后生效/); assert.equal(h.counts().restarts, 0);
   const savedRequest = requests.filter(r => r.options.method === 'PUT').at(-1); const payload = JSON.parse(savedRequest.options.body);
   assert.equal(payload.restart, false); assert.equal(payload.endpoints.downA.port, 42001); assert.equal('id' in payload.endpoints.up, false); assert.equal('used' in payload.endpoints.up, false);
   assert.equal('host' in payload.endpoints.up, true); assert.equal('url' in payload.endpoints.up, false);
@@ -237,7 +237,7 @@ test('Native panel forms submit shared drafts and keep restart notice readable f
   getNode('route-editor').children[2].children.at(-1).listeners.click(); assert.equal(getNode('route-editor').children.length, 2);
   await runInContext('configDraft.endpoints.downA.port = 42002; saveConfig(true)', context);
   assert.deepEqual(destinations, []); assert.match(getNode('connection').textContent, /正在重启/);
-  const notice = /网关已重启，请重新登录|会话已失效，请重新登录核对运行状态/;
+  const notice = /网关已重启，请重新登录|登录会话已失效，请重新登录。/;
   await waitFor(() => notice.test(getNode('connection').textContent), 4000);
   const visibleSince = performance.now();
   const assertReadableBeforeNavigation = () => {

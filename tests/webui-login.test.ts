@@ -93,7 +93,7 @@ test('Served login script submits JSON, displays failure safely, handles network
   });
   assert.ok(submit);
   const event = { preventDefault: () => { prevented++; } };
-  await submit(event); assert.equal(error.textContent, '认证失败'); assert.deepEqual(destinations, []);
+  await submit(event); assert.equal(error.textContent, '登录凭据无效，请重新输入'); assert.deepEqual(destinations, []);
   assert.equal(attributes.get('aria-invalid'), 'true'); assert.equal(focused, true);
   assert.equal(button.disabled, false); assert.equal(button.textContent, '登录');
   assert.equal(error.textContent.includes(input.value), false);
