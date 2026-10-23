@@ -210,7 +210,7 @@ test('WebUI rolls back the original bytes if the post-rename reload fails', asyn
 
 test('WebUI serves offline native assets with no-store and 404/405 semantics while upstream is disconnected', async t => {
   const h = await fixture(t);
-  for (const [path, content, type] of [['/', /id="overview"[\s\S]*id="endpoints"[\s\S]*id="routes"[\s\S]*id="logs"[\s\S]*id="policy-yaml"/, 'text/html'], ['/assets/app.js', /fetch\('\/api\/logs'/, 'text/javascript'], ['/assets/style.css', /color-scheme:\s*dark/, 'text/css']] as const) {
+  for (const [path, content, type] of [['/', /id="overview"[\s\S]*id="endpoints"[\s\S]*id="routes"[\s\S]*id="logs"[\s\S]*id="policy-yaml"/, 'text/html'], ['/assets/app.js', /fetch\('\/api\/logs'/, 'text/javascript'], ['/assets/style.css', /color-scheme:\s*light/, 'text/css']] as const) {
     const response = await fetch(h.url + path); assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.ok(response.headers.get('content-type')?.startsWith(type)); assert.match(await response.text(), content);
   }

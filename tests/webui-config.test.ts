@@ -88,6 +88,19 @@ function outsideNodes(raw: string): string[] {
   return [raw.slice(0, ranges[0]![0]), raw.slice(ranges[0]![1], ranges[1]![0]), raw.slice(ranges[1]![1])];
 }
 
+test('Restart status survives a fresh config read and ignores policy-only changes', async t => {
+  const h = await fixture(t);
+  assert.equal((await (await h.get()).json() as { restart_required: boolean }).restart_required, false);
+  const policiesOnly = structuredClone(h.cfg);
+  policiesOnly.policies.main!.events.deny.keywords = ['NEW'];
+  await writeFile(h.path, stringify(policiesOnly));
+  assert.equal((await (await h.get()).json() as { restart_required: boolean }).restart_required, false);
+  const body = h.body(); body.endpoints.downA!.port = 42001;
+  assert.equal((await h.put(body)).status, 200);
+  assert.equal((await (await h.get()).json() as { restart_required: boolean }).restart_required, true);
+  assert.equal(h.reloader.current.endpoints.downA!.port, 0);
+});
+
 for (const flow of [false, true]) test(`Saving config replaces only endpoints and routes, preserves all outside bytes (flow=${flow}), never hot reloads`, async t => {
   const h = await fixture(t, true, true, flow); const body = h.body();
   body.endpoints.downA!.port = 42001; body.routes[0]!.id = 'updated_route';
@@ -151,7 +164,8 @@ test('GET config projects only endpoint definitions, route definitions and polic
   const text = await response.text();
   for (const secret of [...Object.values(h.env), h.path, 'write_token_env', 'runtime', 'extensions', 'yaml']) assert.equal(text.includes(secret), false, secret);
   const body = JSON.parse(text);
-  assert.deepEqual(Object.keys(body).sort(), ['endpoints', 'policies', 'routes']);
+  assert.deepEqual(Object.keys(body).sort(), ['endpoints', 'policies', 'restart_required', 'routes']);
+  assert.equal(body.restart_required, false);
   assert.deepEqual(body.policies, ['main']); assert.deepEqual(body.routes, h.cfg.routes);
   assert.deepEqual(body.endpoints.up, { id: 'up', side: 'upstream', connection: 'listen', protocol: 'onebot_v11', token_env: 'TEST_TOKEN', reconnect: true, host: '127.0.0.1', port: 0, expected_self_id: 'ACCOUNT_A', used: true });
   assert.equal(body.endpoints.downA.principal, 'APP_A'); assert.equal(body.endpoints.downA.readonly, false);

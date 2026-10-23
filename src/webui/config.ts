@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { isMap, isSeq, parseDocument } from 'yaml';
 import { validateConfig } from '../config/load.ts';
+import type { Config } from '../config/types.ts';
 import { PolicyError } from './policies.ts';
 
 const MAX_FILE = 1048576;
@@ -29,7 +30,7 @@ export class ConfigFile {
       throw new PolicyError('配置文件无法读取，请检查读取权限');
     }
   }
-  get() {
+  get(running?: Config) {
     try {
       const cfg = validateConfig(document(this.read()).toJS({ maxAliasCount: 0 }));
       // Explicit projection: never return other sections, TLS credentials or environment values.
@@ -40,7 +41,10 @@ export class ConfigFile {
         ...(e.side === 'upstream' ? { expected_self_id: e.expected_self_id } : { principal: e.principal, readonly: e.readonly }),
         used: cfg.routes.some(r => r.upstream === id || r.downstream === id),
       }]));
-      return { endpoints, routes: cfg.routes, policies: Object.keys(cfg.policies) };
+      const { policies: _savedPolicies, ...savedFixed } = cfg;
+      const { policies: _runningPolicies, ...runningFixed } = running ?? cfg;
+      return { endpoints, routes: cfg.routes, policies: Object.keys(cfg.policies),
+        restart_required: !isDeepStrictEqual(savedFixed, runningFixed, { skipPrototype: true }) };
     } catch (error) {
       if (error instanceof PolicyError) throw error;
       throw new PolicyError(error instanceof Error ? error.message : '配置全量校验失败');

@@ -17,6 +17,13 @@ let runtimeState = null;
 let pendingRestart = false;
 let endpointSearch = '';
 let draftError = '';
+let rulesDirty = false;
+let policyDirty = false;
+let rulesLoaded = false;
+let rulesBusy = false;
+let rulesSaving = false;
+let policyBusy = false;
+let rulesRequest = 0;
 const endpointOpen = new Set();
 const newEndpointIds = new Set();
 const newForms = { upstream: false, downstream: false };
@@ -176,6 +183,7 @@ function runtimeOnlyRow(name, endpoint) {
 function logRow(event) {
   const kind = String(event.event ?? '');
   const row = document.createElement('li');
+  setAttributeIf(row, 'data-kind', kind);
   if (kind === 'denied') row.className = String(event.rule ?? '').startsWith('action.') ? 'rejected' : 'denied';
   else if (kind === 'allowed') row.className = 'allowed';
   const level = { denied: '拦下', allowed: '放行', session_open: '会话建立', session_close: '会话断开', transport_issue: '传输问题', reload: '策略加载' }[kind] ?? kind;
@@ -186,8 +194,18 @@ function logRow(event) {
     : kind === 'transport_issue' ? human('issues', String(event.reason ?? ''))
     : kind === 'reload' ? `${event.ok ? '策略加载成功' : '策略加载失败'}${event.reason ? ` · ${event.reason}` : ''}`
     : `${event.endpoint ?? ''}${event.side ? ` · ${event.side === 'upstream' ? '上游' : '下游'}` : ''}`;
-  row.append(span('tm', timeOf(event.time)), span('lv', level), span('rt', human('sources', bucket)), span('msg', detail));
+  row.append(span('tm', timeOf(event.time)), span('lv', level), span('rt', human('sources', bucket)), span('msg', `${event.route ? `${event.route} · ` : ''}${detail}`));
   return row;
+}
+function filterLogs() {
+  const term = ($('log-search')?.value ?? '').trim().toLowerCase();
+  const kind = $('log-filter')?.value || 'all';
+  let visible = 0;
+  for (const row of $('logs').children) {
+    row.hidden = (kind !== 'all' && row.dataset?.kind !== kind) || !row.textContent.toLowerCase().includes(term);
+    if (!row.hidden) visible++;
+  }
+  $('log-count').textContent = `${visible} / ${$('logs').children.length} 条记录${visible === 0 && (term || kind !== 'all') ? ' · 无匹配，可清空筛选' : ''}`;
 }
 function headers(token) { return token ? { Authorization: `Bearer ${token}` } : {}; }
 function checkSession(response) {
@@ -206,7 +224,18 @@ function render(state) {
   $('connection').className = 'pill good'; $('connection').textContent = '面板已连接';
   pairs($('overview'), [['网关状态', ready(state.healthy)], ['启动时间', time(state.started_at)], ['最近网关事件时间', time(state.last_event_at)], ['累计放行（次，非送达数）', state.totals.allowed], ['累计拦下（次）', state.totals.denied]]);
   $('overview').firstChild.lastChild.className = state.healthy ? 'ok' : 'warn';
+  $('overview').firstChild.className = state.healthy ? 'is-ready' : 'is-waiting';
   const endpoints = Object.values(state.endpoints);
+  for (const side of ['upstream', 'downstream']) {
+    const group = endpoints.filter(e => e.side === side);
+    $(`flow-${side}`).textContent = `${group.filter(e => e.ready).length} / ${group.length} 就绪 · ${group.filter(e => e.connected).length} 已连接`;
+  }
+  $('flow-policies').textContent = `${(state.policies ?? []).length} 份已加载策略`;
+  const readyRoutes = state.routes.filter(r => r.ready).length;
+  const allReady = state.routes.length > 0 && readyRoutes === state.routes.length;
+  $('flow-status').className = `flow-status ${allReady ? 'ok' : 'warn'}`;
+  $('flow-status').textContent = allReady ? `全部 ${readyRoutes} 条路由已就绪，可按策略转发消息。`
+    : `${readyRoutes} / ${state.routes.length} 条路由已就绪。请到连接端点检查连接与账号验证，再核对路由关联。`;
   if ($('policy-summary')) pairs($('policy-summary'), [['已加载策略（份，至少 1）', (state.policies ?? []).length], ['编辑权限', state.allow_policy_edit ? '可编辑' : '只读模式'], ['策略加载状态', state.reload ? (state.reload.ok ? '策略加载成功' : '策略加载失败') : '尚无重新加载记录']]);
   if ($('session-summary')) pairs($('session-summary'), [['上游会话（已连接 / 总端点）', `${endpoints.filter(e => e.side === 'upstream' && e.connected).length} / ${endpoints.filter(e => e.side === 'upstream').length}`], ['下游会话（已连接 / 总端点）', `${endpoints.filter(e => e.side === 'downstream' && e.connected).length} / ${endpoints.filter(e => e.side === 'downstream').length}`], ['路由（已就绪 / 总数）', `${state.routes.filter(r => r.ready).length} / ${state.routes.length}`]]);
   $('routes').replaceChildren(...state.routes.map(route => {
@@ -242,6 +271,7 @@ function render(state) {
   if (!Object.keys(state.transport_issues).length) pairs($('issues'), [['启动以来未记录传输问题', '—']]);
   const previousEdit = allowEdit;
   allowEdit = state.allow_policy_edit === true;
+  updateRuleControls();
   if (configDraft && previousEdit !== allowEdit) renderConfig();
   logLimit = state.log_ring_size; reload(state.reload);
 }
@@ -253,7 +283,8 @@ async function poll(epoch) {
 async function loadPolicies(epoch) {
   try {
     const data = await api('/api/policies'); if (epoch !== generation) return;
-    $('policy-yaml').value = data.yaml; $('policy-yaml').readOnly = !data.allow_policy_edit;
+    if (!policyDirty) $('policy-yaml').value = data.yaml;
+    $('policy-yaml').readOnly = !data.allow_policy_edit;
     $('edit-controls').hidden = !data.allow_policy_edit;
     $('policy-result').textContent = data.allow_policy_edit ? '可编辑' : '只读模式';
     $('policy-result').classList.remove('failed');
@@ -269,6 +300,7 @@ async function logs(signal) {
       $('stream-status').textContent = '日志已连接，等待网关事件。';
       // A reconnect starts a fresh replay. Keep the DOM bounded without duplicating history.
       $('logs').replaceChildren();
+      filterLogs();
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
       try {
         while (!signal.aborted) {
@@ -283,8 +315,9 @@ async function logs(signal) {
             const event = JSON.parse(data.slice(6));
             $('logs').append(logRow(event));
             while ($('logs').children.length > logLimit) $('logs').firstElementChild.remove();
-            if ($('follow').checked) $('logs').scrollTop = $('logs').scrollHeight;
           }
+          filterLogs();
+          if ($('follow').checked) $('logs').scrollTop = $('logs').scrollHeight;
         }
       } finally { await reader.cancel(); reader.releaseLock(); }
       if (!signal.aborted) $('stream-status').textContent = '日志已断开，将自动重连。';
@@ -300,28 +333,52 @@ function connect() {
   streamController = new AbortController(); void poll(generation); void loadPolicies(generation); void loadRules(generation); void loadConfig(generation); void logs(streamController.signal);
 }
 $('logout').addEventListener('click', async () => {
+  if (hasUnsavedChanges() && !window.confirm('还有未保存的修改，退出登录将丢失这些修改。确认退出？')) return;
   try {
     const response = await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     if (!response.ok) throw new Error('退出登录失败，请重试');
     try { sessionStorage.removeItem('guard-write-token'); } catch { /* Already absent. */ }
+    rulesDirty = false; policyDirty = false; configDraft = null; newForms.upstream = false; newForms.downstream = false;
     location.replace('/');
   } catch (error) { $('error').textContent = error.message; }
 });
 $('policy-form').addEventListener('submit', async event => {
   event.preventDefault(); if ($('edit-controls').hidden) return;
+  if (rulesBusy || rulesSaving || policyBusy) return;
+  if (pendingRestart) { $('policy-result').textContent = '端点或路由配置已保存但尚未生效，请先重启网关。'; return; }
+  if (rulesDirty) { $('policy-result').textContent = '过滤规则有未保存的修改，请先保存或撤销，再编辑完整策略。'; return; }
+  policyBusy = true; $('policy-yaml').readOnly = true; updateRuleControls();
   $('save').disabled = true; $('policy-result').textContent = '正在校验并保存…'; $('policy-result').classList.remove('failed');
   try {
     const result = await api('/api/policies', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ policies: $('policy-yaml').value }) });
+    policyDirty = false;
     $('policy-result').textContent = `策略已保存。加载结果：${result.reload.reason}`; reload(result.reload);
+    rulesPolicy = null;
+    await loadRules(generation);
   } catch (error) { $('policy-result').textContent = error.message; $('policy-result').classList.add('failed'); }
-  finally { $('save').disabled = false; }
+  finally { policyBusy = false; $('save').disabled = false; $('policy-yaml').readOnly = !allowEdit; updateRuleControls(); }
 });
+function updateRuleControls() {
+  const disabled = !allowEdit || !rulesLoaded || rulesBusy || rulesSaving || policyBusy;
+  for (const input of document.querySelectorAll('#rules-form input, #rules-form textarea, #rules-form button')) input.disabled = disabled;
+  $('rules-save').disabled = disabled || pendingRestart;
+  $('save').disabled = policyBusy || rulesSaving || pendingRestart;
+  $('rules-policy-select').disabled = !rulesLoaded || rulesBusy || rulesSaving || policyBusy;
+  $('policy-discard').disabled = policyBusy || rulesSaving;
+  setAttributeIf($('rules-form'), 'aria-busy', String(rulesBusy));
+}
 async function loadRules(epoch) {
+  const request = ++rulesRequest;
+  rulesBusy = true; updateRuleControls();
   try {
     const data = await api('/api/rules' + (rulesPolicy ? `?policy=${encodeURIComponent(rulesPolicy)}` : ''));
-    if (epoch !== generation) return;
+    if (epoch !== generation || request !== rulesRequest) return false;
     rulesPolicy = data.policy;
     rulesRegex = data.rules.receive.keywords_regex;
+    const select = $('rules-policy-select');
+    select.replaceChildren(...(data.policies ?? [data.policy]).map(name => { const option = element('option', name); option.value = name; return option; }));
+    select.value = data.policy;
+    if (configDraft && data.policies) { configDraft.policies = data.policies; if (savedConfig) savedConfig.policies = [...data.policies]; routeEditor(); }
     $('rules-policy').textContent = `策略「${data.policy}」` + (rulesRegex.length ? `。正则规则 ${rulesRegex.length} 条。请在策略 YAML 中编辑。` : '');
     $('rules-groups').value = data.rules.receive.group_ids.join('\n');
     $('rules-users').value = data.rules.receive.user_ids.join('\n');
@@ -330,13 +387,22 @@ async function loadRules(epoch) {
     $('rules-send-users').value = data.rules.send.user_ids.join('\n');
     checks('rules-blocked', SEGMENT_CHOICES, data.rules.receive.blocked_segments);
     checks('rules-send-types', SEND_TYPE_CHOICES, data.rules.send.segments);
+    rulesLoaded = true; rulesDirty = false;
     $('rules-result').classList.remove('failed');
     $('rules-result').textContent = allowEdit ? '保存规则后立即重新加载策略。' : '规则已加载，当前仅可查看。';
-  } catch (error) { $('rules-result').textContent = error.message; $('rules-result').classList.add('failed'); }
+    return true;
+  } catch (error) {
+    if (epoch === generation && request === rulesRequest) { $('rules-result').textContent = error.message; $('rules-result').classList.add('failed'); }
+    return false;
+  } finally { if (request === rulesRequest) { rulesBusy = false; updateRuleControls(); } }
 }
 $('rules-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (!allowEdit) { $('rules-result').textContent = '请先在配置中开启策略编辑。'; return; }
+  if (!rulesLoaded || rulesBusy || rulesSaving || policyBusy) return;
+  if (pendingRestart) { $('rules-result').textContent = '端点或路由配置已保存但尚未生效，请先重启网关。'; return; }
+  if (policyDirty) { $('rules-result').textContent = '策略 YAML 有未保存的修改，请先保存或撤销，避免覆盖。'; return; }
+  rulesSaving = true; $('policy-yaml').readOnly = true; updateRuleControls();
   $('rules-save').disabled = true; $('rules-result').textContent = '正在校验并保存…'; $('rules-result').classList.remove('failed');
   try {
     const rules = {
@@ -344,11 +410,13 @@ $('rules-form').addEventListener('submit', async event => {
       send: { group_ids: lines('rules-send-groups'), user_ids: lines('rules-send-users'), segments: checkedValues('rules-send-types') },
     };
     const result = await api('/api/rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ policy: rulesPolicy, rules }) });
+    rulesDirty = false;
     await loadRules(generation);
+    await loadPolicies(generation);
     $('rules-result').textContent = result.reload && result.reload.ok ? '规则已保存，策略已生效。' : `规则已保存，策略加载失败。原因：${result.reload ? result.reload.reason : '未知'}`;
     $('rules-result').classList.toggle('failed', !(result.reload && result.reload.ok));
   } catch (error) { $('rules-result').textContent = error.message; $('rules-result').classList.add('failed'); }
-  finally { $('rules-save').disabled = false; }
+  finally { rulesSaving = false; $('policy-yaml').readOnly = !allowEdit; updateRuleControls(); }
 });
 function configField(parent, label, value, change, choices, type = 'text') {
   const field = word('fields', label);
@@ -361,7 +429,7 @@ function configField(parent, label, value, change, choices, type = 'text') {
   else input.type = type;
   if (type === 'checkbox') input.checked = value === true;
   else input.value = value ?? '';
-  input.addEventListener('change', () => change(type === 'checkbox' ? input.checked : type === 'number' ? Number(input.value) : input.value));
+  input.addEventListener(choices || type === 'checkbox' ? 'change' : 'input', () => change(type === 'checkbox' ? input.checked : type === 'number' ? Number(input.value) : input.value));
   wrap.append(input); parent.append(wrap); return wrap;
 }
 // ── 端点页：草稿模型、行式字段、增删端点 ──
@@ -413,14 +481,14 @@ function fieldRow(owner, key, value, onChange, options = {}) {
   } else if (options.choices) {
     const input = document.createElement('select'); input.id = controlId;
     for (const [choiceValue, text] of options.choices) { const option = element('option', text); option.value = choiceValue; input.append(option); }
-    input.value = value ?? '';
+    input.value = value ?? ''; input.disabled = !editable;
     const commit = () => onChange(input.value);
     addListenerIf(input, 'input', commit); addListenerIf(input, 'change', commit);
     control.append(input);
   } else {
     const input = document.createElement('input'); input.id = controlId;
     input.type = key === 'port' ? 'number' : 'text';
-    input.value = value ?? '';
+    input.value = value ?? ''; input.disabled = !editable;
     const commit = () => onChange(input.type === 'number' ? Number(input.value) : input.value);
     addListenerIf(input, 'input', commit); addListenerIf(input, 'change', commit);
     control.append(input);
@@ -459,7 +527,7 @@ function actionsRow(id) {
       addListenerIf(undo, 'click', () => { pendingDelete.delete(id); renderConfig(); });
       actions.append(undo);
     } else {
-      const remove = element('button', '删除端点'); remove.type = 'button'; remove.className = 'ghost';
+      const remove = element('button', '删除端点'); remove.type = 'button'; remove.className = 'ghost danger'; remove.disabled = configBusy;
       addListenerIf(remove, 'click', () => { openDeletePanel(id); });
       actions.append(remove);
     }
@@ -469,6 +537,8 @@ function actionsRow(id) {
 function endpointLines(id, endpoint, flags) {
   const lines = document.createElement('div'); lines.className = 'endpoint-lines';
   const runtime = element('p', '正在读取端点运行状态…'); runtime.className = 'muted'; runtime.id = `endpoint-state-${id}`;
+  const live = runtimeState?.endpoints[id];
+  if (live) runtime.textContent = `当前会话：${connected(live.connected)} · ${ready(live.ready)}。待发送 ${live.buffered_bytes} 字节，通常为 0。连续重连 ${live.reconnect_attempts} 次，就绪后归零。`;
   lines.append(runtime);
   lines.append(endpointLine(flags.new ? '草稿配置（未保存）' : '草稿配置', connectionSummary(endpoint)));
   const refs = routeRefs(id);
@@ -691,13 +761,34 @@ function changeSummary() {
   const added = Object.keys(after).filter(id => !before[id]);
   const removed = Object.keys(before).filter(id => !after[id]);
   const edited = Object.keys(after).filter(id => before[id] && normalized(before[id]) !== normalized(after[id]));
-  const routes = normalized(savedConfig.routes) !== normalized(configDraft.routes) ? configDraft.routes.length : 0;
+  const routes = normalized(savedConfig.routes) !== normalized(configDraft.routes);
   const referenced = new Set(configDraft.routes.flatMap(route => [route.upstream, route.downstream]));
   const unlinked = Object.keys(after).filter(id => !referenced.has(id));
   return { added: added.length, removed: removed.length, edited: edited.length, routes, unlinked, addedIds: added, removedIds: removed };
 }
-function touchDraft() { renderDraftSummary(); }
+function touchDraft() {
+  const button = $('config-restart');
+  if (button.dataset) button.dataset.confirm = 'no';
+  button.textContent = '保存并重启';
+  renderDraftSummary();
+}
+function configIsDirty() {
+  const summary = changeSummary();
+  return Boolean(summary && (summary.added || summary.removed || summary.edited || summary.routes));
+}
+function hasUnsavedChanges() { return configIsDirty() || rulesDirty || policyDirty || newForms.upstream || newForms.downstream; }
+function discardConfig() {
+  if (!savedConfig || configBusy) return;
+  configDraft = clone(savedConfig);
+  newEndpointIds.clear(); pendingDelete.clear(); endpointOpen.clear();
+  newForms.upstream = false; newForms.downstream = false;
+  touchDraft(); renderConfig();
+  $('config-result').classList.remove('failed');
+  $('config-result').textContent = '已恢复到最近保存的配置。';
+}
 function renderDraftSummary() {
+  $('restart-warning').hidden = !pendingRestart;
+  updateRuleControls();
   const node = $('config-draft'); if (!node) return;
   if (!configDraft) { node.textContent = configLoaded ? '配置读取失败，草稿暂不可用。' : '正在读取已保存配置…'; node.className = ''; return; }
   const summary = changeSummary();
@@ -707,15 +798,19 @@ function renderDraftSummary() {
   } else parts.push('草稿与已保存配置一致');
   if (pendingRestart) parts.push('配置已保存，仍在使用原配置，待重启。');
   if (summary && summary.unlinked.length) parts.push(`端点未关联路由，无法保存：${summary.unlinked.join('、')}`);
-  parts.push('已保存配置是否生效尚未核对');
+  if (!pendingRestart) parts.push('运行状态见概览；保存状态不代表连接就绪');
   node.textContent = parts.join(' · ');
   node.className = (summary && (summary.added || summary.removed || summary.edited || summary.routes)) || pendingRestart ? 'dirty' : '';
+  $('config-discard').disabled = configBusy || !(configIsDirty() || newForms.upstream || newForms.downstream);
 }
 function renderConfig() {
   if (!configDraft) return;
+  const restartButton = $('config-restart');
+  if (restartButton.dataset) restartButton.dataset.confirm = 'no';
+  restartButton.textContent = '保存并重启';
   renderEndpoints();
   routeEditor();
-  $('route-runtime').hidden = true;
+  $('route-runtime').hidden = false;
   for (const button of [$('endpoint-add-upstream'), $('endpoint-add-downstream')]) {
     button.hidden = !allowEdit; button.disabled = configBusy;
   }
@@ -732,7 +827,7 @@ function routeEditor() {
       const names = key === 'policy' ? configDraft.policies : sideIds(key);
       configField(row, key, route[key], value => { route[key] = value; touchDraft(); }, names.map(id => [id, id]));
     }
-    const remove = element('button', '删除路由'); remove.type = 'button';
+    const remove = element('button', '删除路由'); remove.type = 'button'; remove.className = 'ghost danger';
     addListenerIf(remove, 'click', () => { configDraft.routes.splice(index, 1); touchDraft(); renderConfig(); }); row.append(remove); return row;
   });
   $('route-editor').replaceChildren(...rows);
@@ -748,6 +843,7 @@ async function loadConfig(epoch) {
     if (epoch !== generation) return;
     configDraft = data;
     savedConfig = clone(data);
+    pendingRestart = data.restart_required === true;
     configLoaded = true;
     newEndpointIds.clear(); pendingDelete.clear(); newForms.upstream = false; newForms.downstream = false;
     renderConfig();
@@ -791,6 +887,7 @@ async function waitForRestart(startedAt) {
 }
 async function saveConfig(restart) {
   if (!configDraft || !configLoaded || !allowEdit || configBusy) return;
+  if (restart && (rulesDirty || policyDirty || rulesSaving || policyBusy)) { $('config-result').textContent = '请先保存或撤销规则与 YAML 的修改，再重启网关。'; return; }
   const summary = changeSummary();
   if (summary && summary.unlinked.length) {
     $('config-result').classList.add('failed');
@@ -806,6 +903,7 @@ async function saveConfig(restart) {
     let result;
     try { result = await api('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, restart }) }); }
     catch (error) { restarting = false; throw error; }
+    configDraft = { ...configDraft, ...payload };
     savedConfig = clone(configDraft);
     newEndpointIds.clear(); pendingDelete.clear();
     if (restart) { pendingRestart = false; void waitForRestart(state.started_at); }
@@ -846,8 +944,7 @@ addListenerIf($('endpoint-jump-upstream'), 'click', () => { const target = $('en
 addListenerIf($('endpoint-jump-downstream'), 'click', () => { const target = $('endpoints-downstream-title'); if (target?.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 window.addEventListener('pagehide', () => { restarting = false; generation++; clearTimeout(pollTimer); streamController?.abort(); });
 window.addEventListener('beforeunload', event => {
-  const summary = configDraft ? changeSummary() : null;
-  if (!summary || !(summary.added || summary.removed || summary.edited || summary.routes)) return;
+  if (!hasUnsavedChanges() || restarting) return;
   event.preventDefault(); event.returnValue = '草稿尚未保存，确认离开？';
 });
 function syncConfigBarHeight() {
@@ -862,6 +959,7 @@ function route() {
   const name = (location.hash.replace(/^#\/?/, '') || 'overview').toLowerCase();
   const page = PAGES.includes(name) ? name : 'overview';
   document.body.dataset.page = page;
+  $('page-name').textContent = { overview: '概览', endpoints: '连接端点', routes: '消息路由', rules: '过滤规则', logs: '实时日志', policies: '策略 YAML' }[page];
   $('config-controls').hidden = !['endpoints', 'routes'].includes(page);
   const tools = $('endpoint-tools'); if (tools) tools.hidden = page !== 'endpoints';
   for (const link of document.querySelectorAll('nav a')) {
@@ -871,5 +969,30 @@ function route() {
   }
 }
 window.addEventListener('hashchange', route);
+addListenerIf($('config-discard'), 'click', () => {
+  if (configBusy || !window.confirm('撤销端点和路由的未保存修改，恢复最近保存的配置？')) return;
+  discardConfig();
+});
+addListenerIf($('rules-form'), 'input', () => { rulesDirty = true; $('rules-result').textContent = '有未保存的规则修改'; });
+addListenerIf($('policy-yaml'), 'input', () => { policyDirty = true; $('policy-result').textContent = '有未保存的 YAML 修改'; });
+addListenerIf($('rules-policy-select'), 'change', async () => {
+  const select = $('rules-policy-select'); const previous = rulesPolicy;
+  if (rulesBusy || rulesSaving || policyBusy || (rulesDirty && !window.confirm('切换策略将丢弃当前未保存的规则修改，是否继续？'))) { select.value = previous; return; }
+  rulesPolicy = select.value;
+  if (!await loadRules(generation)) { rulesPolicy = previous; select.value = previous; }
+});
+addListenerIf($('log-search'), 'input', filterLogs);
+addListenerIf($('log-filter'), 'change', filterLogs);
+addListenerIf($('rules-discard'), 'click', async () => {
+  if (rulesBusy || rulesSaving || policyBusy || (rulesDirty && !window.confirm('撤销未保存的规则修改？'))) return;
+  await loadRules(generation);
+});
+addListenerIf($('policy-discard'), 'click', async () => {
+  if (policyBusy || rulesSaving || (policyDirty && !window.confirm('撤销未保存的 YAML 修改？'))) return;
+  const wasDirty = policyDirty;
+  policyBusy = true; policyDirty = false; $('policy-yaml').readOnly = true; updateRuleControls();
+  try { await loadPolicies(generation); if ($('policy-result').classList.contains('failed')) policyDirty = wasDirty; }
+  finally { policyBusy = false; $('policy-yaml').readOnly = !allowEdit; updateRuleControls(); }
+});
 route();
 connect();
