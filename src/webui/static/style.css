@@ -352,8 +352,8 @@ nav a { min-height: 44px; }
 #rules-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
 #rules-form > .form-block { margin: 0; padding: 24px; }
 #rules-form .card-title { font-size: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-#rules-form > .form-block:nth-child(2) { border-top: 3px solid var(--warn); }
-#rules-form > .form-block:first-child { border-top: 3px solid var(--accent); }
+
+
 .rule-actions { grid-column: 1 / -1; padding: 16px 0; }
 .group-label { margin: 18px 0 8px; font-size: 13.5px; }
 .group-label .hint { display: block; margin-top: 4px; }
@@ -500,4 +500,89 @@ nav a .ic { font-size: 18px; width: 20px; }
   .endpoint-actions { margin-left: 0 !important; width: 100%; }
   .section-title .hint { display: block; margin: 3px 0 0; }
   .policy-toolbar .sub { flex-basis: 100%; }
+}
+
+/* Shared page components: keep all six views on one visual scale. */
+:root {
+  --space: 24px;
+  --control-height: 40px;
+  --control-radius: 8px;
+  --control-border: #b9c6d5;
+  --title-size: 28px;
+  --section-size: 16px;
+  --label-size: 13px;
+}
+.phead { min-height: 98px; align-items: center; gap: 16px; margin-bottom: 24px; }
+.phead h1 { font-size: var(--title-size); line-height: 1.35; font-weight: 650; }
+.phead .eyebrow { margin: 0 0 6px; }
+.phead .page-description { margin: 8px 0 0; font-size: 13px; line-height: 1.6; }
+.phead > .text-action { font-size: 13px; text-decoration: none; }
+.card, .endpoint-card, .config-card, .summary-panel, .flow-panel, .metrics, #logs,
+.cards > div, .setup-grid > a { border-radius: var(--radius); border-color: var(--line); }
+.endpoint-card, .config-card, .summary-panel, #rules-form > .form-block { padding: var(--space); }
+.section-title, .card-title, .summary-panel h2, .section-heading h2, h2.zone,
+#rules-form .card-title { font-size: var(--section-size); font-weight: 600; color: var(--fg); }
+#rules-form > .form-block { border-top: 1px solid var(--line); }
+#rules-form .card-title { padding-bottom: 16px; margin: 0 0 20px; border-bottom: 1px solid var(--line-soft); }
+.section-title, .card-title { margin-top: 24px; margin-bottom: 12px; }
+.form-block label, .field-label, .config-fields label, .policy-toolbar label { font-size: var(--label-size); font-weight: 500; }
+input:not([type=checkbox]), select, textarea,
+.field-control input:not([type=checkbox]), .field-control select,
+.config-fields input:not([type=checkbox]), .config-fields select,
+#endpoint-tools input[type=search], .toolbar input, .toolbar select {
+  border: 1px solid var(--control-border); border-radius: var(--control-radius);
+  background: var(--panel); color: var(--fg); padding: 9px 12px;
+}
+input:not([type=checkbox]), select,
+.field-control input:not([type=checkbox]), .field-control select,
+.toolbar input:not([type=checkbox]), .toolbar select { min-height: var(--control-height); }
+textarea { border-radius: var(--control-radius); padding: 12px; }
+input:disabled, select:disabled, textarea:read-only { background: var(--panel-2); color: var(--fg-dim); }
+button, .endpoint-actions button, #endpoint-tools .jump button {
+  min-height: var(--control-height); border-radius: var(--control-radius); padding: 9px 14px; font-size: 13px;
+}
+button:hover { filter: none; background: #1d4ed8; }
+button.ghost:hover { background: var(--panel-2); }
+button.danger:hover { background: #fff0f1; }
+button.linkbtn { min-height: 32px; padding: 4px 0; }
+button.linkbtn:hover { background: transparent; }
+button:disabled, #config-restart:disabled { background: #eff2f6; border-color: var(--line); color: #7b8797; }
+input[aria-invalid=true], .field-control input[aria-invalid=true] { border-color: var(--bad); }
+.toolbar, #endpoint-tools.toolbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  padding: 16px; margin: 0 0 24px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius);
+}
+.toolbar label { margin: 0; }
+#endpoint-tools input[type=search] { flex: 1 1 260px; max-width: none; }
+.toolbar .sub { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 20px 24px; border-bottom: 1px solid var(--line-soft); }
+.panel-heading h2, .yaml-panel .panel-heading label { margin: 0; font-size: var(--section-size); font-weight: 600; }
+.panel-heading .sub { font-size: 12px; max-width: 100%; }
+.log-panel #logs { border: 0; border-radius: 0; }
+.log-panel #logs li { grid-template-columns: 8ch 6em 6em minmax(0, 1fr); }
+.log-panel .log-controls { padding: 14px 24px; margin: 0; border-top: 1px solid var(--line-soft); background: var(--panel-2); }
+.log-panel .log-controls .sub { width: auto; font-size: 12px; }
+.yaml-panel { padding: 0; margin-bottom: 12px; }
+.yaml-panel #policy-yaml { width: calc(100% - 48px); margin: 24px; min-height: 360px; background: var(--panel-2); }
+.action-bar { padding: 16px 24px; gap: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.yaml-panel .action-bar { border: 0; border-top: 1px solid var(--line-soft); border-radius: 0; }
+.yaml-panel #edit-controls { margin: 0; }
+.action-bar .muted { font-size: 12px; }
+.notice { padding: 14px 18px; border: 1px solid #d6e3fb; border-radius: var(--radius); background: #edf3ff; font-size: 12px; }
+.endpoint-route-links h4 { margin: 0; font-size: 13px; font-weight: 600; }
+.endpoint-route-links p { margin: 0; }
+@media (min-width: 901px) and (max-width: 1279.98px) { main { padding-top: 0; } }
+@media (max-width: 720px) {
+  :root { --space: 18px; --title-size: 25px; --control-height: 44px; }
+  .phead { min-height: 0; margin-bottom: 24px; align-items: flex-start; }
+  .toolbar, #endpoint-tools.toolbar { padding: 14px; }
+  .toolbar .check { min-height: var(--control-height); }
+  .panel-heading { padding: 18px; }
+  .yaml-panel #policy-yaml { width: calc(100% - 36px); margin: 18px; }
+  .action-bar, .log-panel .log-controls { padding: 14px 18px; }
+  #endpoint-tools .jump { width: 100%; }
+}
+@media (max-width: 540px) {
+  .log-panel #logs li { grid-template-columns: 8ch 6em minmax(0, 1fr); }
 }

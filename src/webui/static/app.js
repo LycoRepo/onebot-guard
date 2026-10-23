@@ -961,6 +961,9 @@ function route() {
   document.body.dataset.page = page;
   $('page-name').textContent = { overview: '概览', endpoints: '连接端点', routes: '消息路由', rules: '过滤规则', logs: '实时日志', policies: '策略 YAML' }[page];
   $('config-controls').hidden = !['endpoints', 'routes'].includes(page);
+  // Keep every page title in the same position, with the shared draft bar below it.
+  const heading = document.querySelector?.(`${page === 'endpoints' ? '#endpoints' : '#page-' + page} > .phead`);
+  if (['endpoints', 'routes'].includes(page)) heading?.after?.($('config-controls'));
   const tools = $('endpoint-tools'); if (tools) tools.hidden = page !== 'endpoints';
   for (const link of document.querySelectorAll('nav a')) {
     const active = link.dataset.page === page;

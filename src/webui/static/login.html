@@ -5,15 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>网关运维面板 · 登录</title>
   <style>
-    :root { color-scheme: light; font: 15px/1.7 system-ui, "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #172638; }
+    :root { color-scheme: light; font: 14.5px/1.55 ui-sans-serif, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; background: #f5f7fa; color: #172638; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; min-height: 100svh; display: grid; place-items: center; padding: 24px 16px; }
-    main { width: 100%; max-width: 420px; padding: 32px; background: #ffffff; border: 1px solid #dbe2ea; border-top: 3px solid #2563eb; border-radius: 18px; box-shadow: 0 24px 64px #0003; }
+    main { width: 100%; max-width: 420px; padding: 32px; background: #ffffff; border: 1px solid #dbe2ea; border-radius: 12px; }
+    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+    .brand-mark { display: grid; place-items: center; flex: 0 0 36px; height: 39px; background: #2563eb; color: white; font: 700 23px/1 ui-monospace, Consolas, monospace; border-radius: 12px 12px 16px 4px; }
+    .brand b { display: block; font-size: 16px; letter-spacing: -.4px; }
+    .brand span { display: block; color: #68788a; font-size: 11px; margin-top: 3px; letter-spacing: 1px; }
     .eyebrow { margin: 0 0 8px; font-size: 12px; letter-spacing: .12em; color: #2563eb; }
-    h1 { font-size: 25px; line-height: 1.4; margin: 0 0 12px; }
+    h1 { font-size: 28px; font-weight: 650; letter-spacing: -.6px; line-height: 1.35; margin: 0 0 8px; }
     .hint { margin: 0 0 24px; color: #58687a; font-size: 13px; }
-    label { display: block; margin-bottom: 8px; font-weight: 600; }
-    input, button { display: block; width: 100%; min-width: 0; min-height: 46px; font: inherit; border-radius: 9px; }
+    label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500; }
+    input, button { display: block; width: 100%; min-width: 0; min-height: 40px; font: inherit; border-radius: 8px; }
     input { padding: 10px 12px; background: #ffffff; border: 1px solid #b9c6d5; color: #172638; }
     input::placeholder { color: #68788a; }
     input[aria-invalid=true] { border-color: #c43d4b; }
@@ -24,12 +28,14 @@
     #login-error { margin: 18px 0 0; color: #c43d4b; overflow-wrap: anywhere; font-size: 13px; }
     #login-error:empty { display: none; }
     #login-status { min-height: 1.7em; margin: 12px 0 0; color: #58687a; font-size: 13px; }
+    @media (max-width: 720px) { h1 { font-size: 25px; } input, button { min-height: 44px; } }
     @media (max-width: 420px) { main { padding: 24px; } }
   </style>
 </head>
 <body>
   <main aria-labelledby="login-title">
-  <p class="eyebrow">ONEBOT GUARD</p>
+  <div class="brand"><div class="brand-mark" aria-hidden="true">G</div><div><b>OneBot Guard</b><span>消息与权限管理</span></div></div>
+  <p class="eyebrow">WORKSPACE ACCESS</p>
   <h1 id="login-title">登录运维面板</h1>
   <p class="hint" id="login-help">请输入登录凭据以访问面板。登录会话过期后需重新登录。</p>
   <form id="login-form">
