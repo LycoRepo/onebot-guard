@@ -11,13 +11,16 @@
   <a class="skip-link" href="#main-content">跳转到主要内容</a>
   <div class="app">
     <aside>
-      <div class="brand"><span>策略网关</span><b>网关运维面板</b></div>
+      <div class="brand"><div class="brand-mark" aria-hidden="true">G</div><div><b>OneBot Guard</b><span>消息与权限管理</span></div></div>
       <nav aria-label="主导航">
+        <p class="nav-label">工作空间</p>
         <a href="#/overview" data-page="overview"><span class="ic" aria-hidden="true">&#9672;</span>概览</a>
-        <a href="#/endpoints" data-page="endpoints"><span class="ic" aria-hidden="true">&#8644;</span>端点</a>
-        <a href="#/routes" data-page="routes"><span class="ic" aria-hidden="true">&#8651;</span>路由</a>
-        <a href="#/rules" data-page="rules"><span class="ic" aria-hidden="true">&#9776;</span>过滤规则</a>
         <a href="#/logs" data-page="logs"><span class="ic" aria-hidden="true">&#8801;</span>实时日志</a>
+        <p class="nav-label">配置与管理</p>
+        <a href="#/endpoints" data-page="endpoints"><span class="ic" aria-hidden="true">&#8644;</span>连接端点</a>
+        <a href="#/routes" data-page="routes"><span class="ic" aria-hidden="true">&#8651;</span>消息路由</a>
+        <a href="#/rules" data-page="rules"><span class="ic" aria-hidden="true">&#9776;</span>过滤规则</a>
+        <p class="nav-label">高级设置</p>
         <a href="#/policies" data-page="policies"><span class="ic" aria-hidden="true">&#9881;</span>策略 YAML</a>
       </nav>
       <div class="foot">
@@ -28,19 +31,18 @@
     </aside>
 
     <main id="main-content" tabindex="-1">
+      <div class="workspace-bar"><span>控制台 <span aria-hidden="true">/</span> <b id="page-name">概览</b></span><span class="workspace-note">OneBot v11 · 策略网关</span></div>
       <p id="error" role="alert"></p>
+      <p id="restart-warning" class="notice" role="status" hidden>配置已保存，等待重启。网关仍使用原配置，规则与 YAML 暂不能保存。<a href="#/endpoints">前往连接端点，重启网关 →</a></p>
       <div id="config-controls" class="card config-actions" hidden>
         <div class="config-state">
           <p id="config-draft" role="status" aria-live="polite">正在读取已保存配置…</p>
-          <ul class="config-notes">
-            <li>端点与路由共用一份草稿。</li>
-            <li>端点与路由改动在重启网关后生效。</li>
-            <li>保存并重启后，请重新登录。</li>
-          </ul>
+          <p class="config-notes">端点与路由共享草稿。保存只写入文件，重启后生效。</p>
         </div>
         <div class="config-buttons">
           <div class="inline">
-            <button id="config-save" type="button" disabled>保存配置</button>
+            <button id="config-discard" class="ghost" type="button" disabled>撤销草稿</button>
+            <button id="config-save" class="ghost" type="button" disabled>仅保存</button>
             <button id="config-restart" type="button" disabled>保存并重启</button>
           </div>
           <span id="config-result" role="status" aria-live="polite">正在读取配置…</span>
@@ -48,7 +50,18 @@
       </div>
 
       <section class="page" id="page-overview" aria-labelledby="overview-title">
-        <header class="phead"><div><p class="eyebrow">运行监控</p><h1 id="overview-title">概览</h1></div><span class="sub">每 3 秒刷新；累计次数在重启后清零</span></header>
+        <header class="phead"><div><p class="eyebrow">OVERVIEW</p><h1 id="overview-title">网关概览</h1><p class="page-description">连接是否正常，消息流向哪里，一目了然。</p></div><span class="live-label">每 3 秒刷新 · 重启后计数清零</span></header>
+        <section class="flow-panel" aria-labelledby="flow-title">
+          <div class="section-heading"><div><h2 id="flow-title">消息链路</h2><p>上游接收消息，策略决定放行，再交给下游应用。</p></div><a href="#/routes">管理路由 →</a></div>
+          <div class="connection-flow">
+            <a href="#/endpoints"><span class="flow-icon" aria-hidden="true">↗</span><div><b>上游 · 协议端</b><span id="flow-upstream">正在读取连接…</span></div></a>
+            <span class="flow-arrow" aria-hidden="true">⇄</span>
+            <a href="#/rules" class="flow-guard"><span class="flow-icon" aria-hidden="true">G</span><div><b>Guard · 策略过滤</b><span id="flow-policies">正在读取策略…</span></div></a>
+            <span class="flow-arrow" aria-hidden="true">⇄</span>
+            <a href="#/endpoints"><span class="flow-icon" aria-hidden="true">↙</span><div><b>下游 · 机器人应用</b><span id="flow-downstream">正在读取连接…</span></div></a>
+          </div>
+          <p id="flow-status" class="flow-status" role="status">正在检查链路状态…</p>
+        </section>
         <h2 class="section-title">网关状态与累计次数</h2>
         <dl id="overview" class="cards"><div><dt>网关状态</dt><dd>正在读取…</dd></div></dl>
         <div class="summary-grid">
@@ -59,11 +72,16 @@
           <section aria-labelledby="rules-title"><h2 class="card-title" id="rules-title">规则命中（累计次数，拦下不代表异常）</h2><dl id="rules" class="metrics"><div><dt>命中统计</dt><dd>正在读取…</dd></div></dl></section>
           <section aria-labelledby="issues-title"><h2 class="card-title" id="issues-title">传输问题（累计次数，持续增加需检查）</h2><dl id="issues" class="metrics"><div><dt>问题统计</dt><dd>正在读取…</dd></div></dl></section>
         </div>
+        <section class="setup-section" aria-labelledby="setup-title"><h2 id="setup-title" class="section-title">配置从这里开始</h2><div class="setup-grid">
+          <a href="#/endpoints"><span class="step-number">01</span><div><b>连接端点</b><p>添加协议端与机器人，设置连接地址。</p></div><span aria-hidden="true">↗</span></a>
+          <a href="#/routes"><span class="step-number">02</span><div><b>关联路由</b><p>选择消息从哪里来、交给谁处理。</p></div><span aria-hidden="true">↗</span></a>
+          <a href="#/rules"><span class="step-number">03</span><div><b>设置规则</b><p>决定接收范围与允许发送的内容。</p></div><span aria-hidden="true">↗</span></a>
+        </div></section>
       </section>
 
       <section class="page" id="endpoints" aria-labelledby="endpoints-title">
-        <div class="phead"><h1 id="endpoints-title">端点</h1><span class="sub">端点是网关与上游或下游之间的连接配置。</span></div>
-        <div id="endpoint-tools">
+        <div class="phead"><div><p class="eyebrow">CONNECTIONS / 01</p><h1 id="endpoints-title">连接端点</h1><p class="page-description">先连接协议端与机器人应用，再到消息路由中关联。</p></div><a class="text-action" href="#/routes">下一步：关联路由 →</a></div>
+        <div id="endpoint-tools" class="toolbar">
           <input id="endpoint-search" type="search" placeholder="搜索端点标识、地址、账号或下游身份" aria-label="搜索端点">
           <div class="jump">
             <button type="button" class="ghost" id="endpoint-jump-upstream">查看上游端点 <span id="endpoint-count-upstream">0</span></button>
@@ -93,9 +111,11 @@
       </section>
 
       <section class="page" id="page-routes" aria-labelledby="routes-title">
-        <div class="phead"><h1 id="routes-title">路由</h1><span class="sub">每条路由关联上游端点、下游端点和策略。</span></div>
+        <div class="phead"><div><p class="eyebrow">ROUTING / 02</p><h1 id="routes-title">消息路由</h1><p class="page-description">将上游、下游和策略连接起来。每个下游只能绑定一条路由。</p></div><a class="text-action" href="#/rules">下一步：设置规则 →</a></div>
+        <h2 class="section-title">路由配置 <span class="hint">编辑草稿，保存并重启后生效</span></h2>
         <div id="route-editor" class="card form-block"><p class="empty">正在读取路由配置…</p></div>
         <button id="route-add" type="button" hidden>添加路由</button>
+        <h2 class="section-title">当前运行状态 <span class="hint">来自正在运行的实例，不随草稿变化</span></h2>
         <div id="route-runtime" class="card table-wrap" role="region" aria-label="路由运行状态，可横向滚动" tabindex="0">
           <table>
             <caption class="sr-only">当前路由状态；等待上游响应的请求通常较少</caption>
@@ -106,8 +126,9 @@
       </section>
 
       <section class="page" id="page-rules" aria-labelledby="rules-page-title">
-        <div class="phead"><h1 id="rules-page-title">过滤规则</h1><span class="sub" id="rules-policy"></span></div>
-        <form id="rules-form">
+        <div class="phead"><div><p class="eyebrow">POLICIES / 03</p><h1 id="rules-page-title">过滤规则</h1><p class="page-description">分别设置接收与发送权限，保存后自动加载，无需重启。</p></div><a class="text-action" href="#/policies">高级 YAML →</a></div>
+        <div class="policy-toolbar toolbar"><label for="rules-policy-select">正在编辑的策略</label><select id="rules-policy-select" disabled aria-describedby="rules-policy"></select><span class="sub" id="rules-policy"></span></div>
+        <form id="rules-form" aria-busy="true">
           <div class="card form-block">
             <h2 class="card-title">接收消息 <span class="hint">设置上游转给下游的消息范围</span></h2>
             <label for="rules-groups">接收群放行名单 <span class="hint">一行一个群号；留空不限制群。仍受其他规则限制。</span></label>
@@ -128,8 +149,9 @@
             <p class="group-label" id="send-types-label">放行这些发送类型 <span class="hint">未勾选的类型会被拦下。全部取消时仍放行文字。</span></p>
             <div class="checks" id="rules-send-types" role="group" aria-labelledby="send-types-label"></div>
           </div>
-          <div class="inline rule-actions">
+          <div class="inline rule-actions action-bar">
             <button class="prim" type="submit" id="rules-save">保存规则</button>
+            <button class="ghost" type="button" id="rules-discard">撤销修改</button>
             <span id="rules-result" class="muted" role="status" aria-live="polite">正在读取过滤规则…</span>
           </div>
         </form>
@@ -137,24 +159,30 @@
 
       <section class="page" id="page-logs" aria-labelledby="logs-title">
         <div class="phead">
-          <h1 id="logs-title">实时日志</h1>
+          <div><p class="eyebrow">ACTIVITY</p><h1 id="logs-title">实时日志</h1><p class="page-description">按时间查看网关事件，定位路由、规则与传输问题。</p></div>
+          <a class="text-action" href="#/overview">返回网关概览 →</a>
+        </div>
+        <div class="toolbar log-toolbar">
+          <input id="log-search" type="search" aria-label="搜索日志" placeholder="搜索路由、规则或事件…"><select id="log-filter" aria-label="筛选事件类型"><option value="all">全部事件</option><option value="allowed">放行</option><option value="denied">拦下</option><option value="transport_issue">传输问题</option><option value="reload">策略加载</option></select>
+          <label class="check" for="follow"><input id="follow" type="checkbox" checked> 跟随最新</label>
+        </div>
+        <div class="card log-panel">
+          <div class="panel-heading"><h2>事件记录</h2><span id="log-count" class="muted" role="status">0 条记录</span></div>
+          <ol id="logs" tabindex="0" aria-label="实时事件记录" aria-describedby="stream-status"></ol>
           <div class="log-controls">
             <span class="sub" id="stream-status" role="status">正在连接日志…</span>
-            <label class="check" for="follow"><input id="follow" type="checkbox" checked> 跟随最新</label>
           </div>
         </div>
-        <p class="muted">按时间显示网关事件。开启“跟随最新”后自动滚动。</p>
-        <ol id="logs" tabindex="0" aria-label="实时事件记录" aria-describedby="stream-status"></ol>
       </section>
 
       <section class="page" id="page-policies" aria-labelledby="policies-title">
-        <div class="phead"><h1 id="policies-title">策略 YAML</h1><span class="sub" id="reload-status"></span></div>
-        <div class="notice"><p>策略包含过滤规则和请求权限。保存前校验配置与路由引用。</p><p>校验失败时不保存，原策略继续生效。</p></div>
-        <form id="policy-form">
-          <label for="policy-yaml">当前策略 YAML</label>
+        <div class="phead"><div><p class="eyebrow">ADVANCED</p><h1 id="policies-title">策略 YAML</h1><p class="page-description">编辑完整策略配置，校验通过后自动加载。</p></div><a class="text-action" href="#/rules">返回过滤规则 →</a></div>
+        <div class="notice"><p>这里编辑完整策略。常用的接收与发送设置，可前往 <a href="#/rules">过滤规则</a>。</p><p>保存前校验配置与路由引用；校验失败时不保存，原策略继续生效。</p></div>
+        <form id="policy-form" class="card form-block yaml-panel">
+          <div class="panel-heading"><label for="policy-yaml">当前策略 YAML</label><span class="sub" id="reload-status"></span></div>
           <textarea id="policy-yaml" readonly spellcheck="false" rows="22"></textarea>
           <div id="edit-controls" hidden>
-            <div class="inline"><button id="save" type="submit">校验并保存</button><span class="muted">保存后立即重新加载策略。</span></div>
+            <div class="inline action-bar"><button id="save" type="submit">校验并保存</button><button id="policy-discard" type="button" class="ghost">撤销修改</button><span class="muted">保存后立即重新加载策略。</span></div>
           </div>
         </form>
         <p id="policy-result" role="status" aria-live="polite">正在读取策略 YAML…</p>

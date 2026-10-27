@@ -209,7 +209,7 @@ export class WebUI {
       }
       if (path === '/api/state') { this.json(res, 200, this.state()); return; }
       if (path === '/api/logs') { this.stream(res, hasSession ? session : undefined); return; }
-      if (path === '/api/config' && !writing) { this.json(res, 200, this.configuration.get()); return; }
+      if (path === '/api/config' && !writing) { this.json(res, 200, this.configuration.get(this.reloader.current)); return; }
       if (path === '/api/rules' && !writing) {
         const parsed = this.policies.get().parsed as Record<string, Policy>;
         const names = Object.keys(parsed);

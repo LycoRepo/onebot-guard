@@ -8,7 +8,9 @@ const script = (await readFile(new URL('../src/webui/static/app.js', import.meta
 function panel(fetch?: typeof globalThis.fetch) {
   class Node {
     children: Node[] = [];
-    text = ''; className = ''; title = ''; value = ''; type = ''; hidden = false;
+    text = ''; className = ''; title = ''; value = ''; type = ''; hidden = false; disabled = false;
+    dataset: Record<string, string> = {};
+    listeners: Record<string, (...args: any[]) => any> = {};
     classList = { add() {}, remove() {}, toggle() {} };
     tag: string;
     constructor(tag: string) { this.tag = tag; }
@@ -18,16 +20,18 @@ function panel(fetch?: typeof globalThis.fetch) {
     get lastChild() { return this.children.at(-1)!; }
     append(...children: Node[]) { this.children.push(...children); }
     replaceChildren(...children: Node[]) { this.text = ''; this.children = children; }
-    addEventListener() {}
+    addEventListener(name: string, handler: (...args: any[]) => any) { this.listeners[name] = handler; }
+    setAttribute(name: string, value: string) { if (name.startsWith('data-')) this.dataset[name.slice(5)] = value; }
   }
   const nodes = new Map<string, Node>();
   const get = (id: string) => { if (!nodes.has(id)) nodes.set(id, new Node('div')); return nodes.get(id)!; };
+  const events: Record<string, (...args: any[]) => any> = {};
   const context = createContext({
-    document: { getElementById: get, createElement: (tag: string) => new Node(tag), querySelectorAll: () => [], body: { dataset: {} } },
-    window: { addEventListener() {} }, sessionStorage: { removeItem() {} }, location: { hash: '#/overview' }, fetch,
+    document: { getElementById: get, createElement: (tag: string) => new Node(tag), createTextNode: (text: string) => Object.assign(new Node('text'), { text }), querySelectorAll: () => [], body: { dataset: {} } },
+    window: { addEventListener(name: string, handler: (...args: any[]) => any) { events[name] = handler; }, confirm: () => true }, sessionStorage: { removeItem() {} }, location: { hash: '#/overview' }, fetch,
   });
   runInContext(script, context);
-  return { get, run: (code: string) => runInContext(code, context) };
+  return { get, events, run: (code: string) => runInContext(code, context) };
 }
 
 test('Connection and readiness stay distinct for every combination of runtime states', () => {
@@ -36,6 +40,92 @@ test('Connection and readiness stay distinct for every combination of runtime st
     const row = run(`runtimeOnlyRow('UPSTREAM', { side: 'upstream', onebot: 'onebot_v11', connection: 'listen', connected: ${isConnected}, ready: ${isReady}, buffered_bytes: 0, reconnect_attempts: 0 })`);
     assert.ok(row.textContent.includes(`${isConnected ? '已连接' : '未连接'} · ${isReady ? '已就绪' : '未就绪'}`));
   }
+});
+
+test('Deleting the last route is dirty and protects against leaving; discard restores the saved draft', () => {
+  const { get, run, events } = panel();
+  run(`savedConfig = { endpoints: {}, routes: [{id: 'last', upstream: 'up', downstream: 'down', policy: 'main'}], policies: ['main'] }; configDraft = clone(savedConfig); configDraft.routes = []`);
+  assert.equal(run('configIsDirty()'), true);
+  let prevented = false;
+  events.beforeunload!({ preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  run('renderDraftSummary()');
+  assert.match(get('config-draft').textContent, /路由改动：有/);
+  run('discardConfig()');
+  assert.equal(run('configIsDirty()'), false);
+  assert.equal(run('configDraft.routes.length'), 1);
+  assert.equal(get('route-runtime').hidden, false);
+});
+
+test('Rule and YAML drafts are also protected when leaving', () => {
+  for (const flag of ['rulesDirty', 'policyDirty']) {
+    const { run, events } = panel();
+    run(`${flag} = true`);
+    let prevented = false;
+    events.beforeunload!({ preventDefault() { prevented = true; } });
+    assert.equal(prevented, true, flag);
+  }
+});
+
+test('Readonly and in-flight endpoint fields cannot be edited', () => {
+  const { run } = panel();
+  for (const setup of ['allowEdit = false; configBusy = false', 'allowEdit = true; configBusy = true']) {
+    run(setup);
+    assert.equal(run(`fieldRow('up', 'url', 'ws://localhost', () => {}).children[1].children[0].disabled`), true);
+    assert.equal(run(`fieldRow('up', 'connection', 'listen', () => {}, {choices: CONNECTION_CHOICES}).children[1].children[0].disabled`), true);
+  }
+});
+
+test('A pending restart confirmation is invalidated when the draft changes', () => {
+  const { get, run } = panel();
+  get('config-restart').dataset.confirm = 'yes';
+  run('touchDraft()');
+  assert.equal(get('config-restart').dataset.confirm, 'no');
+  assert.equal(get('config-restart').textContent, '保存并重启');
+});
+
+test('Log search combines event type and route text without removing buffered rows', () => {
+  const { get, run } = panel();
+  run(`$('logs').append(logRow({event:'allowed', route:'routeA', rule:'action.send'}), logRow({event:'denied', route:'routeB', rule:'event.keyword'}))`);
+  get('log-filter').value = 'denied'; get('log-search').value = 'routeB';
+  run('filterLogs()');
+  assert.equal(get('logs').children[0]!.hidden, true);
+  assert.equal(get('logs').children[1]!.hidden, false);
+  assert.match(get('log-count').textContent, /^1 \/ 2/);
+  get('log-search').value = 'missing'; run('filterLogs()');
+  assert.match(get('log-count').textContent, /无匹配/);
+  assert.equal(get('logs').children.length, 2);
+});
+
+test('Policy selection loads its rules and failed switches preserve the prior draft', async () => {
+  const calls: string[] = [];
+  const { get, run } = panel(async path => {
+    calls.push(String(path));
+    if (String(path).includes('other')) return new Response(JSON.stringify({error: 'offline'}), {status: 503});
+    return new Response(JSON.stringify({policy:'main', policies:['main','other'], rules:{receive:{group_ids:['A'], user_ids:[], keywords:[], keywords_regex:[], blocked_segments:[]}, send:{group_ids:[], user_ids:[], segments:['text']}}}));
+  });
+  await run('allowEdit = true; loadRules(generation)');
+  assert.equal(get('rules-policy-select').children.length, 2);
+  assert.equal(get('rules-save').disabled, false);
+  get('rules-groups').value = 'UNSAVED'; run('rulesDirty = true');
+  get('rules-policy-select').value = 'other';
+  await get('rules-policy-select').listeners.change!();
+  assert.equal(get('rules-policy-select').value, 'main');
+  assert.equal(get('rules-groups').value, 'UNSAVED');
+  assert.equal(run('rulesDirty'), true);
+  assert.ok(calls.includes('/api/rules?policy=other'));
+});
+
+test('Saving an endpoint deletion removes it from both saved baseline and future payloads', async () => {
+  const { run } = panel(async () => new Response(JSON.stringify({ok:true})));
+  run(`allowEdit = true; configLoaded = true;
+    configDraft = { endpoints: { up: {side:'upstream'}, down: {side:'downstream'}, removed: {side:'downstream'} }, routes: [{id:'r', upstream:'up', downstream:'down', policy:'main'}], policies:['main'] };
+    savedConfig = clone(configDraft); pendingDelete.set('removed', {side:'downstream'});`);
+  await run('saveConfig(false)');
+  assert.equal(run(`'removed' in configDraft.endpoints`), false);
+  assert.equal(run(`'removed' in savedConfig.endpoints`), false);
+  assert.equal(run('configIsDirty()'), false);
+  assert.equal(run('pendingRestart'), true);
 });
 
 test('Overview and runtime route table use the same readiness and decision words', () => {
