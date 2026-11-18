@@ -55,6 +55,7 @@ npm ci                  # 安装依赖（Node >= 24）
 cp config/gateway.example.yaml config/gateway.yaml   # 真实配置，已被 .gitignore 忽略
 npm run typecheck       # tsc --noEmit
 npm test                # node --test
+npm start               # 本地直跑，需先设 GATEWAY_TOKEN / UPSTREAM_TOKEN（见「配置与运行」）
 docker compose up -d --build
 ```
 
