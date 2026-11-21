@@ -31,6 +31,8 @@ export class Gateway {
         open: peer => this.open(peer), packet: (peer, raw) => this.packet(peer, raw), close: peer => this.close(peer), issue: (endpoint, reason) => observation.issue(endpoint, reason),
       }));
     }
+    // 启动时只按配置决定哪条路由生效；运行中的切换只改内存，不重启。
+    for (const route of config.routes) if (!route.enabled) this.closedRoutes.add(route.id);
   }
   async start(): Promise<void> {
     this.stopped = false;
@@ -77,7 +79,8 @@ export class Gateway {
     this.observation.decision(route.id, direction, decision, peer.session.generation, packet);
   }
   private event(route: Route, upstream: Peer, packet: Packet): void {
-    if (this.closedRoutes.has(route.id)) { this.record(route, upstream, packet, 'event', deny('event.route', 'route_closed')); return; }
+    // 停用是运维意图，不是拒绝：不转发，也不为每条事件记一次「路由已关闭」。
+    if (this.closedRoutes.has(route.id)) return;
     const policy = this.policy(route); let decision: Decision;
     try { decision = checkEvent(packet, policy, upstream.session.account!, this.config.runtime.max_regex_input_chars); }
     catch { decision = deny('event.authorization.error', 'event_authorization_error'); }
@@ -103,7 +106,7 @@ export class Gateway {
   private action(peer: Peer, packet: Packet): void {
     const route = this.config.routes.find(r => r.downstream === peer.session.endpoint)!;
     const reject = (decision: Decision, retcode = 1403): void => { this.record(route, peer, packet, 'action', decision); peer.send(failure(packet, decision.reason, retcode)); };
-    if (this.closedRoutes.has(route.id)) { reject(deny('action.route', 'route_closed')); return; }
+    if (this.closedRoutes.has(route.id)) { reject(deny('action.route', 'route_disabled'), 1503); return; }
     let action;
     try { action = parseAction(packet); } catch { reject(deny('action.protocol', 'invalid_action_packet'), 1400); return; }
     const upstream = this.endpoints.get(route.upstream)!.peer;
@@ -160,14 +163,33 @@ export class Gateway {
   closeRoute(id: string): void {
     if (!this.config.routes.some(r => r.id === id)) throw new Error('unknown_route');
     this.closedRoutes.add(id);
-    for (const pending of this.echoes.remove(p => p.route === id)) this.finish(pending, 'route_closed_result_unknown', 1504);
+    for (const pending of this.echoes.remove(p => p.route === id)) this.finish(pending, 'route_disabled_result_unknown', 1504);
+  }
+  /** 运行时启停一条路由；上游/下游会话保持连接，切回是即时的，不需要重连。 */
+  setRouteEnabled(id: string, enabled: boolean): void {
+    const route = this.config.routes.find(r => r.id === id);
+    if (!route) throw new Error('unknown_route');
+    route.enabled = enabled;
+    if (enabled) this.closedRoutes.delete(id);
+    else {
+      this.closedRoutes.add(id);
+      // 停用后回包不会再投递，先把在途请求明确收尾，避免下游一直等。
+      for (const pending of this.echoes.remove(p => p.route === id)) this.finish(pending, 'route_disabled_result_unknown', 1504);
+    }
+  }
+  /** 同一个上游下只留一条生效：切换时自动停用其它路由，避免两个后端同时回复。 */
+  switchRoute(id: string): Route {
+    const route = this.config.routes.find(r => r.id === id);
+    if (!route) throw new Error('unknown_route');
+    for (const other of this.config.routes) if (other.upstream === route.upstream) this.setRouteEnabled(other.id, other.id === id);
+    return route;
   }
   replacePolicies(policies: Config['policies']): void { this.config = { ...this.config, policies }; }
   snapshot(): { healthy: boolean; endpoints: unknown; routes: unknown; queues: unknown } {
     const endpoints = Object.fromEntries([...this.endpoints].map(([name, transport]) => [name, transport.snapshot()]));
-    const routes = this.config.routes.map(route => ({ id: route.id, ready: !this.stopped && !this.closedRoutes.has(route.id) && !!this.endpoints.get(route.upstream)!.peer?.active && !!this.endpoints.get(route.upstream)!.peer?.session.account && !!this.endpoints.get(route.downstream)!.peer?.active,
+    const routes = this.config.routes.map(route => ({ id: route.id, enabled: !this.closedRoutes.has(route.id), ready: !this.stopped && !this.closedRoutes.has(route.id) && !!this.endpoints.get(route.upstream)!.peer?.active && !!this.endpoints.get(route.upstream)!.peer?.session.account && !!this.endpoints.get(route.downstream)!.peer?.active,
       pending_requests: [...this.echoes.entries.values()].filter(p => p.route === route.id).length }));
-    return { healthy: !this.stopped && routes.every(r => r.ready), endpoints, routes, queues: { application_queue: 0, pending_requests: this.echoes.entries.size, identity_probes: this.probes.size, dedupe_entries: this.dedupe.entries.size, inbound_rate_entries: this.inbound.entries.size, outbound_rate_entries: this.outbound.entries.size } };
+    return { healthy: !this.stopped && routes.some(r => r.enabled) && routes.filter(r => r.enabled).every(r => r.ready), endpoints, routes, queues: { application_queue: 0, pending_requests: this.echoes.entries.size, identity_probes: this.probes.size, dedupe_entries: this.dedupe.entries.size, inbound_rate_entries: this.inbound.entries.size, outbound_rate_entries: this.outbound.entries.size } };
   }
   async stop(): Promise<void> {
     this.stopped = true; clearInterval(this.timer);

@@ -210,7 +210,9 @@ test('health/stats are loopback, read-only and body/credential free; offline eve
   assert.equal(stats.queues.application_queue, 0); assert.equal(stats.hits_by_rule['event.delivery'], 1); assert.ok(stats.last_event_at);
   assert.equal((await fetch(`${h.healthURL}/stats`, { method: 'POST' })).status, 405);
   assert.equal((await fetch(`${h.healthURL}/unknown`)).status, 404);
-  h.gateway.closeRoute('routeA'); assert.equal((await fetch(`${h.healthURL}/health`)).status, 503);
+  h.gateway.closeRoute('routeA');
+  assert.equal((await fetch(`${h.healthURL}/health`)).status, 200, 'routeB is still enabled and ready');
+  h.gateway.closeRoute('routeB'); assert.equal((await fetch(`${h.healthURL}/health`)).status, 503);
 });
 
 test('upstream listener checks token, Universal role and identity; packet identity mismatch closes session', async t => {
@@ -252,7 +254,7 @@ test('downstream connect supplies reverse WS identity headers and uses the same 
   assert.notEqual(h.gateway.endpoints.get('downA')!.peer!.session.generation, generation);
 });
 
-test('route closure clears pending requests; sent reads use the newest visibility policy on return', async t => {
+test('route disable clears pending requests; sent reads use the newest visibility policy on return', async t => {
   const c = config(); const h = await harness(t, c); const up = await h.dial('up'); const a = await h.dial('downA');
   send(a.socket, { action: 'get_group_list', echo: 'groups' }); const listRequest = await up.next();
   const next = structuredClone(c); next.policies.main!.events.allow = [{ post_type: 'meta_event' }];
@@ -261,9 +263,9 @@ test('route closure clears pending requests; sent reads use the newest visibilit
   assert.deepEqual((await a.next()).data, []);
   send(a.socket, { action: 'get_status', echo: 'pending' }); const old = await up.next();
   h.gateway.closeRoute('routeA'); assert.equal(h.gateway.echoes.entries.size, 0);
-  const closed = await a.next(); assert.equal(closed.message, 'route_closed_result_unknown'); assert.equal(closed.echo, 'pending');
+  const closed = await a.next(); assert.equal(closed.message, 'route_disabled_result_unknown'); assert.equal(closed.echo, 'pending');
   send(up.socket, reply(old)); send(a.socket, { action: 'get_status', echo: 'closed' });
-  assert.equal((await a.next()).message, 'route_closed');
+  const refused = await a.next(); assert.equal(refused.message, 'route_disabled'); assert.equal(refused.retcode, 1503); assert.equal(refused.echo, 'closed');
   assert.ok(h.observation.issues.get('unmatched_or_late_response'));
 });
 

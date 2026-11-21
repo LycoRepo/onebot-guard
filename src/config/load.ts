@@ -149,8 +149,8 @@ export function validateConfig(v: unknown): Config {
   for (const [id, value] of Object.entries(object(o.policies, 'policies'))) policies[id] = policy(value, `policies.${id}`);
   const seen = new Set<string>(); const downstreams = new Set<string>();
   const routes = list(o.routes, 'routes').map((v, i) => {
-    const p = `routes[${i}]`; const a = object(v, p, ['id', 'upstream', 'downstream', 'policy']);
-    const route = { id: str(a.id, `${p}.id`), upstream: str(a.upstream, `${p}.upstream`), downstream: str(a.downstream, `${p}.downstream`), policy: str(a.policy, `${p}.policy`) };
+    const p = `routes[${i}]`; const a = object(v, p, ['id', 'upstream', 'downstream', 'policy', 'enabled']);
+    const route = { id: str(a.id, `${p}.id`), upstream: str(a.upstream, `${p}.upstream`), downstream: str(a.downstream, `${p}.downstream`), policy: str(a.policy, `${p}.policy`), enabled: bool(a.enabled, `${p}.enabled`, true) };
     if (seen.has(route.id)) fail(`${p}.id`, 'route ID 重复'); seen.add(route.id);
     if (endpoints[route.upstream]?.side !== 'upstream') fail(`${p}.upstream`, '必须引用已有上游端点');
     if (endpoints[route.downstream]?.side !== 'downstream') fail(`${p}.downstream`, '必须引用已有下游端点');

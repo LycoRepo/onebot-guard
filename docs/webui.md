@@ -34,8 +34,9 @@ WebUI 默认关闭；启用后默认在回环地址的 3012 端口监听。它�
 | GET | `/api/state` | 健康、启动/最后事件时间、端点、路由两端就绪、待回包、状态表规模、计数、规则命中、传输问题、策略名称、最近重载；读认证 |
 | GET | `/api/policies` | `{ yaml, parsed, reload, allow_policy_edit }`；yaml 是文件中 policies 值的 YAML 表示，parsed 是对应映射；读认证 |
 | PUT | `/api/policies` | 仅编辑开启时存在；始终要求写认证 |
-| GET | `/api/config`（允许查询串） | 文件中的端点、路由、策略名称与 `restart_required`；必须有有效登录会话 |
+| GET | `/api/config`（允许查询串） | 文件中的端点、路由（含 `enabled`）、策略名称与 `restart_required`；必须有有效登录会话 |
 | PUT | `/api/config` | 编辑开启时可保存端点/路由；必须有有效登录会话；可请求重启 |
+| POST | `/api/routes/switch` | JSON `{ "route": "<路由 ID>" }`；切换该上游下生效的路由并写回文件；需登录会话或写凭据，编辑关闭时为 404 |
 | GET | `/api/logs` | SSE 最近事件回放与实时推送；读认证 |
 
 `reload` 在尚未重载时为 null，其后为 `{ ok, reason, time }`；包含文件监听、信号和页面保存触发的结果。策略 GET 读的是文件内容，运行策略名来自重载器；如果宿主手工修改了无效配置，旧内存策略继续运行，错误原因显示在重载结果中。策略 GET 也会先全量校验当前文件，无效时返回 400，避免回显外部误写的明文凭据字段。
@@ -92,7 +93,7 @@ WebUI 最多 16 个 HTTP 连接，请求体和配置文件各最多 1 MiB。SSE 
 
 新增端点就在分组内展开表单，先填端点 ID 与连接、身份字段，再选路由关联：可以「加入草稿并新建路由」（顺带创建一条引用它的路由），也可以「仅加入草稿，稍后关联」——后者立即标为未关联并阻止保存，直到在路由页关联。端点 ID 必填、全局唯一、以字母开头、不超过 64 字符；加入草稿后沿用该 ID。删除端点只是先在草稿里标为待删除，并列出影响：引用它的路由、同一批路由的另一侧端点、是否会删掉最后一条路由；可以「一并删除这些路由」或「取消删除」。标记为待删除的端点不再进入保存载荷，因此引用它的路由必须一并去掉或改指到别的端点，否则整份配置会被 `validateConfig` 拒绝。
 
-路由页可增删路由、编辑 ID，并从端点与策略名称列表选择上游、下游和策略。至少保留一条路由，每个下游只能绑定一条路由，全部端点必须被路由引用；服务端 `validateConfig` 是唯一校验权威。端点页与路由页共用一份草稿和顶部吸附操作条，操作条显示未保存摘要（新增/修改/删除的数量、路由是否变更、是否存在未关联端点、当前生效版本是否已核对），三秒状态轮询不会覆盖草稿。运行读数与草稿分开展示：草稿里有、运行实例里没有的端点显示为尚未运行。关闭编辑时表单只读。没有登录会话的回环/Bearer 面板仍显示运行状态，但配置编辑不可用；启用读取凭据并登录后才能编辑。
+路由页可增删路由、编辑 ID，并从端点与策略名称列表选择上游、下游和策略。至少保留一条路由，每个下游只能绑定一条路由，全部端点必须被路由引用；服务端 `validateConfig` 是唯一校验权威。运行状态表多一列「生效」：同一上游下有多条路由时，点「切到这条」会按上游互斥切换并写回配置文件的 `enabled`，即时生效、不用重启；没有可切换的同组路由时只显示状态。存在未保存的端点/路由草稿时，切换会被拒绝并要求先保存并重启或撤销草稿，避免草稿把开关状态覆盖回去。端点页与路由页共用一份草稿和顶部吸附操作条，操作条显示未保存摘要（新增/修改/删除的数量、路由是否变更、是否存在未关联端点、当前生效版本是否已核对），三秒状态轮询不会覆盖草稿。运行读数与草稿分开展示：草稿里有、运行实例里没有的端点显示为尚未运行。关闭编辑时表单只读。没有登录会话的回环/Bearer 面板仍显示运行状态，但配置编辑不可用；启用读取凭据并登录后才能编辑。
 
 `GET /api/config` 从磁盘读取并全量校验，返回：
 
@@ -102,7 +103,7 @@ WebUI 最多 16 个 HTTP 连接，请求体和配置文件各最多 1 MiB。SSE 
     "up": {"id":"up","side":"upstream","connection":"connect","protocol":"onebot_v11","url":"ws://example.invalid","token_env":"UPSTREAM_TOKEN","expected_self_id":"ACCOUNT_A","reconnect":true,"used":true},
     "down": {"id":"down","side":"downstream","connection":"listen","protocol":"onebot_v11","host":"127.0.0.1","port":3010,"token_env":"DOWNSTREAM_TOKEN","principal":"APP_A","readonly":false,"reconnect":true,"used":true}
   },
-  "routes": [{"id":"routeA","upstream":"up","downstream":"down","policy":"main"}],
+  "routes": [{"id":"routeA","upstream":"up","downstream":"down","policy":"main","enabled":true}],
   "policies": ["main"],
   "restart_required": false
 }
@@ -127,10 +128,14 @@ WebUI 最多 16 个 HTTP 连接，请求体和配置文件各最多 1 MiB。SSE 
 `PUT /api/config` 的 JSON 体恰好包含三个必填字段：
 
 ```json
-{"endpoints":{"up":{"side":"upstream","connection":"connect","protocol":"onebot_v11","url":"ws://example.invalid","token_env":"UPSTREAM_TOKEN","expected_self_id":"ACCOUNT_A","reconnect":true},"down":{"side":"downstream","connection":"listen","protocol":"onebot_v11","host":"127.0.0.1","port":3010,"token_env":"DOWNSTREAM_TOKEN","principal":"APP_A","readonly":false,"reconnect":true}},"routes":[{"id":"routeA","upstream":"up","downstream":"down","policy":"main"}],"restart":false}
+{"endpoints":{"up":{"side":"upstream","connection":"connect","protocol":"onebot_v11","url":"ws://example.invalid","token_env":"UPSTREAM_TOKEN","expected_self_id":"ACCOUNT_A","reconnect":true},"down":{"side":"downstream","connection":"listen","protocol":"onebot_v11","host":"127.0.0.1","port":3010,"token_env":"DOWNSTREAM_TOKEN","principal":"APP_A","readonly":false,"reconnect":true}},"routes":[{"id":"routeA","upstream":"up","downstream":"down","policy":"main","enabled":true}],"restart":false}
 ```
 
 请求端点定义不包含 GET 的 `id`/`used` 展示字段。先把 endpoints/routes 合并到当前磁盘文档，调用完整 `validateConfig`；通过后用 YAML Document 的 range 切片，只替换两个顶层值，同目录临时文件 rename 原子落盘。两个值之外的注释、换行、缩进与配置字节原样保留。任何校验拒绝和临时文件写入/rename 失败都不改变原文件，不改变运行内存；不热重载端点/路由。
+
+`routes[].enabled` 随 `GET /api/config` 返回；`PUT /api/config` 中某条 route 省略 `enabled` 时沿用磁盘上的值，避免脚本或旧页面保存时静默把已停用的后端重新打开。
+
+`POST /api/routes/switch` 只做一件事：把同一上游下的其它 route 置为 `enabled: false`、目标 route 置为 `true`，只改写这些键并原子写回同一文件；校验或写入失败时文件与内存都不变。成功后立即在当前实例生效，被停用的路由不转发事件、其 Action 返回 `route_disabled`，连接保持。它不受「保存 ≠ 生效」限制，也不需要重启。请求体恰好一个 `route` 字符串字段；未知路由或形状错误返回 400，非 POST 返回 405（Allow: POST），无登录会话且无写凭据返回 401，编辑关闭时返回 404。
 
 保存成功返回 200 `{"ok":true,"restart":false,"restart_required":true,"message":"改动已保存，端点与路由重启后生效"}`。保存并重启返回 202 `{"ok":true,"restart":true,"restart_required":true,"message":"已保存，正在重启；端点与路由改动重启后生效"}`。仅在响应 finish 后延迟 200 ms 调用注入的钩子；生产 CLI 先复用幂等 `stop()` 关闭监听、会话、SSE、网关和观测服务，再退出 0，由容器 `restart: unless-stopped` 启动新实例。直接在宿主运行 CLI 时退出后需要外部进程管理器或手动启动。
 

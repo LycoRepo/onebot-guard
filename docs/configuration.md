@@ -34,6 +34,24 @@
 
 热重载读取同一个配置文件。`reload.policy_watch: true` 监听其所在目录，可识别原子替换，按 `debounce_ms` 防抖；Unix 还可发送 `SIGHUP`，例如 `docker compose kill -s HUP gateway`。Windows 使用文件变更入口。只允许修改 policies（含事件规则、Action 授权、limits）；端点、账号、凭据变量名、端口、路径、运行上限等必须重启。任意校验失败都保留整份旧策略。凭据环境变量仅启动时读取。
 
+route 的 `enabled` 是例外：它只在启动时从文件读取，运行中由面板开关切换，切换会写回配置文件但不重启；热重载比较时忽略它的差异，不会因为切过一次开关就要求重启。
+
+### 同一 bot 接两个后端
+
+每个后端各占一个下游端点（独立端口与 `principal`），各写一条引用同一个上游的 route，用 `enabled` 决定谁在收消息：
+
+```yaml
+endpoints:
+  bot: { side: upstream, connection: listen, protocol: onebot_v11, host: 127.0.0.1, port: 3020, token_env: UPSTREAM_TOKEN, expected_self_id: "ACCOUNT_A" }
+  app_main: { side: downstream, connection: listen, protocol: onebot_v11, host: 127.0.0.1, port: 3010, token_env: GATEWAY_TOKEN, principal: app_main }
+  app_backup: { side: downstream, connection: listen, protocol: onebot_v11, host: 127.0.0.1, port: 3030, token_env: GATEWAY_TOKEN, principal: app_backup }
+routes:
+  - { id: bot_to_main, upstream: bot, downstream: app_main, policy: default_policy, enabled: true }
+  - { id: bot_to_backup, upstream: bot, downstream: app_backup, policy: default_policy, enabled: false }
+```
+
+未启用的 route 不转发事件，但下游会话保持连接；它发出的 Action 返回 `failed`、`retcode=1503`、`message=route_disabled`。面板「消息路由」页的开关按上游互斥切换并写回文件，切回来不需要重连。配置文件里同一上游同时 `enabled: true` 仍会广播给多条 route（两个后端都会收到事件），所以推荐只保留一条。
+
 Compose 示例使用 Linux host 网络，实际端口由配置中的 `host: 127.0.0.1` 绑定，不发布公网端口。这样可以连接宿主回环上的协议端，同时让 `/health`、`/stats` 始终保持回环监听。该部署示例面向 Linux Docker Engine；Docker Desktop 的 host 网络能力需要另行启用，不承诺跨平台部署兼容。容器以 node 用户运行，内存限制 256 MiB，日志滚动。配置目录只读挂载，支持宿主原子替换文件后由目录监听触发重载；真实配置不复制到镜像。
 
 ```bash

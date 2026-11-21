@@ -219,6 +219,49 @@ async function api(path, options = {}) {
   return body;
 }
 function reload(result) { $('reload-status').textContent = result ? `${time(result.time)} · ${result.ok ? '策略加载成功' : '策略加载失败'} · ${result.reason}` : '尚无重新加载记录'; }
+function routeActionCell(route) {
+  const td = document.createElement('td');
+  if (!configDraft) { td.textContent = '—'; return td; }
+  const definition = configDraft.routes.find(item => item.id === route.id);
+  if (!definition) { td.textContent = '—'; return td; }
+  // 同一个上游只有一条路由时没有可切换的对象，直接显示状态。
+  const siblings = configDraft.routes.filter(item => item.upstream === definition.upstream);
+  if (siblings.length < 2) { td.textContent = route.enabled === false ? '已停用' : '唯一路由'; return td; }
+  if (route.enabled !== false) { td.append(span('ok', '生效中')); return td; }
+  if (!allowEdit) { td.append(span('warn', '已暂停')); return td; }
+  const button = element('button', '切到这条');
+  button.type = 'button'; button.className = 'ghost route-switch';
+  addListenerIf(button, 'click', () => { void switchRoute(route.id); });
+  td.append(button); return td;
+}
+function renderRouteRows(routes) {
+  const cell = (text, cls) => { const td = element('td', text); if (cls) td.className = cls; return td; };
+  $('routes').replaceChildren(...routes.map(route => {
+    const row = document.createElement('tr');
+    row.append(cell(route.id, 'mono'), cell(ready(route.upstream_ready), route.upstream_ready ? 'ok' : 'warn'), cell(ready(route.downstream_ready), route.downstream_ready ? 'ok' : 'warn'),
+      cell(ready(route.ready), route.ready ? 'ok' : 'warn'), cell(route.pending_requests), routeActionCell(route));
+    return row;
+  }));
+  if (!routes.length) {
+    const row = document.createElement('tr'); const cell = element('td', '暂无运行路由，请核对配置。'); cell.colSpan = 6; cell.className = 'empty'; row.append(cell); $('routes').append(row);
+  }
+}
+async function switchRoute(id) {
+  if (configBusy) return;
+  if (configIsDirty() || newForms.upstream || newForms.downstream) {
+    $('config-result').classList.add('failed');
+    $('config-result').textContent = '还有未保存的端点或路由改动。请先保存并重启，或撤销草稿，再切换生效路由。';
+    return;
+  }
+  configBusy = true; renderConfig();
+  $('config-result').classList.remove('failed'); $('config-result').textContent = '正在切换生效路由…';
+  try {
+    const result = await api('/api/routes/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ route: id }) });
+    $('config-result').textContent = result.message ?? '已切换生效路由。';
+    await loadConfig(generation);
+  } catch (error) { $('config-result').textContent = error.message; $('config-result').classList.add('failed'); }
+  finally { configBusy = false; renderConfig(); if (runtimeState) render(runtimeState); }
+}
 function render(state) {
   runtimeState = state;
   $('connection').className = 'pill good'; $('connection').textContent = '面板已连接';
@@ -238,15 +281,7 @@ function render(state) {
     : `${readyRoutes} / ${state.routes.length} 条路由已就绪。请到连接端点检查连接与账号验证，再核对路由关联。`;
   if ($('policy-summary')) pairs($('policy-summary'), [['已加载策略（份，至少 1）', (state.policies ?? []).length], ['编辑权限', state.allow_policy_edit ? '可编辑' : '只读模式'], ['策略加载状态', state.reload ? (state.reload.ok ? '策略加载成功' : '策略加载失败') : '尚无重新加载记录']]);
   if ($('session-summary')) pairs($('session-summary'), [['上游会话（已连接 / 总端点）', `${endpoints.filter(e => e.side === 'upstream' && e.connected).length} / ${endpoints.filter(e => e.side === 'upstream').length}`], ['下游会话（已连接 / 总端点）', `${endpoints.filter(e => e.side === 'downstream' && e.connected).length} / ${endpoints.filter(e => e.side === 'downstream').length}`], ['路由（已就绪 / 总数）', `${state.routes.filter(r => r.ready).length} / ${state.routes.length}`]]);
-  $('routes').replaceChildren(...state.routes.map(route => {
-    const cell = (text, cls) => { const td = element('td', text); if (cls) td.className = cls; return td; };
-    const row = document.createElement('tr');
-    row.append(cell(route.id, 'mono'), cell(ready(route.upstream_ready), route.upstream_ready ? 'ok' : 'warn'), cell(ready(route.downstream_ready), route.downstream_ready ? 'ok' : 'warn'), cell(ready(route.ready), route.ready ? 'ok' : 'warn'), cell(route.pending_requests));
-    return row;
-  }));
-  if (!state.routes.length) {
-    const row = document.createElement('tr'); const cell = element('td', '暂无运行路由，请核对配置。'); cell.colSpan = 5; cell.className = 'empty'; row.append(cell); $('routes').append(row);
-  }
+  renderRouteRows(state.routes);
   if (!configDraft) {
     const sides = { upstream: [], downstream: [] };
     for (const [name, endpoint] of Object.entries(state.endpoints)) sides[endpoint.side === 'upstream' ? 'upstream' : 'downstream'].push([name, endpoint]);

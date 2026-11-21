@@ -8,7 +8,11 @@ import { loadConfig } from './load.ts';
 export function reloadPolicies(current: Config, next: Config): Config {
   const { policies: _old, ...fixed } = current;
   const { policies: _new, ...nextFixed } = next;
-  if (!isDeepStrictEqual(fixed, nextFixed, { skipPrototype: true })) throw new Error('策略以外的配置已变化（端点、账号、凭据、运行参数等），必须重启进程；保留旧策略');
+  // 路由的 enabled 是运行时开关：只在进程启动时从文件读取，热重载不把它当作结构漂移，
+  // 否则在面板切换一次就会让后续策略保存/监听一直报「必须重启」。
+  const running = new Map(current.routes.map(route => [route.id, route.enabled]));
+  const settle = (routes: Config['routes']): Config['routes'] => routes.map(route => ({ ...route, enabled: running.get(route.id) ?? route.enabled }));
+  if (!isDeepStrictEqual({ ...fixed, routes: settle(fixed.routes) }, { ...nextFixed, routes: settle(nextFixed.routes) }, { skipPrototype: true })) throw new Error('策略以外的配置已变化（端点、账号、凭据、运行参数等），必须重启进程；保留旧策略');
   return { ...current, policies: next.policies };
 }
 export class PolicyReloader {

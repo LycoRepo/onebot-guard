@@ -56,7 +56,7 @@ export interface Policy {
   };
   on_error: 'deny' | 'skip';
 }
-export interface Route { id: string; upstream: string; downstream: string; policy: string }
+export interface Route { id: string; upstream: string; downstream: string; policy: string; enabled: boolean }
 export interface Config {
   schema_version: 1;
   log: { level: 'debug' | 'info' | 'warn' | 'error'; format: 'pretty' | 'json'; message_preview_chars: number };
