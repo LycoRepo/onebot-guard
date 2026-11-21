@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1
-
+# 刻意不写 `# syntax=docker/dockerfile:1`：BuildKit 内置 frontend 已够用，
+# 写了会让构建机必须能访问 docker.io，连不上时构建直接失败。
 # Node 24 原生执行 TypeScript（类型剥离），因此无需构建步骤。
 # 类型检查是独立的门禁：npm run typecheck（tsc --noEmit），不在镜像构建里做。
 
