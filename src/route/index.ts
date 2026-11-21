@@ -177,13 +177,6 @@ export class Gateway {
       for (const pending of this.echoes.remove(p => p.route === id)) this.finish(pending, 'route_disabled_result_unknown', 1504);
     }
   }
-  /** 同一个上游下只留一条生效：切换时自动停用其它路由，避免两个后端同时回复。 */
-  switchRoute(id: string): Route {
-    const route = this.config.routes.find(r => r.id === id);
-    if (!route) throw new Error('unknown_route');
-    for (const other of this.config.routes) if (other.upstream === route.upstream) this.setRouteEnabled(other.id, other.id === id);
-    return route;
-  }
   replacePolicies(policies: Config['policies']): void { this.config = { ...this.config, policies }; }
   snapshot(): { healthy: boolean; endpoints: unknown; routes: unknown; queues: unknown } {
     const endpoints = Object.fromEntries([...this.endpoints].map(([name, transport]) => [name, transport.snapshot()]));

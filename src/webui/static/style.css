@@ -586,6 +586,6 @@ input[aria-invalid=true], .field-control input[aria-invalid=true] { border-color
 @media (max-width: 540px) {
   .log-panel #logs li { grid-template-columns: 8ch 6em minmax(0, 1fr); }
 }
-/* 路由生效开关：切换消息交给哪个后端，不需要重启 */
+/* 路由接收开关：逐条启用/暂停，不需要重启 */
 button.route-switch { min-height: 30px; padding: 2px 10px; font-size: 12.5px; white-space: nowrap; }
 

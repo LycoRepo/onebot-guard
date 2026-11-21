@@ -138,10 +138,10 @@ export class ConfigFile {
     }
   }
   /**
-   * 切换某个上游下生效的路由：同一个上游只留一条 enabled，
-   * 只改写每条 route 的 enabled 键，其余字节与注释原样保留。
+   * 设置某一条路由是否接收消息：只改它的 enabled 键，其它路由与文件其余字节原样保留。
+   * 同一上游可以同时启用多条（消息会广播给每条），也可以只留一条。
    */
-  switchRoute(routeId: string): Route[] {
+  setRouteEnabled(routeId: string, enabled: boolean): Route[] {
     const original = this.read();
     const doc = document(original);
     try {
@@ -149,7 +149,7 @@ export class ConfigFile {
       const cfg = validateConfig(current);
       const target = cfg.routes.find(route => route.id === routeId);
       if (!target) throw new PolicyError('未找到该路由，请刷新页面后重试');
-      const routes = cfg.routes.map(route => ({ ...route, enabled: route.upstream === target.upstream ? route.id === routeId : route.enabled }));
+      const routes = cfg.routes.map(route => ({ ...route, enabled: route.id === routeId ? enabled : route.enabled }));
       const node = doc.get('routes', true);
       if (!isSeq(node) || !node.range) throw new PolicyError('routes: 当前配置缺少节点');
       const range = node.range as [number, number, number];

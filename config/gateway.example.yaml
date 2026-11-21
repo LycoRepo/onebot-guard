@@ -102,7 +102,8 @@ endpoints:
   #   principal: app_remote
 
   # 例：同一个 bot 背后的第二个后端应用。每个后端各自一个下游端点（独立端口与身份），
-  # 由 routes 里的 enabled 决定谁在收消息；面板上可以随时切换，不用重启。
+  # 每条 route 用 enabled 单独控制是否接收消息：可以只开一条，也可以同时开（两边都收到）。
+  # 面板上可以按条切换，不用重启。
   # 示例复用 GATEWAY_TOKEN，生产建议为每个下游单独准备凭据。
   app_secondary:
     side: downstream
@@ -116,9 +117,10 @@ endpoints:
 
 routes:
   # 一条 route = 一个账号 × 一个下游应用。多账号或多应用请显式写多条 route。
-  # 同一个上游可以挂多条 route（每个下游仍只能绑定一条），用 enabled 决定谁在收消息：
-  # 未启用的那条保持连接、不转发事件，它发出的 Action 返回 route_disabled。
-  # 面板「消息路由」页的生效开关即时切换并写回这里，不需要重启。
+  # 同一个上游可以挂多条 route（每个下游仍只能绑定一条）。每条 route 的 enabled 独立控制
+  # 它是否接收消息：停用的那条保持连接、不转发事件，其 Action 返回 route_disabled。
+  # 多条同时启用时事件会广播给每条（两个后端都会收到）。面板「消息路由」页逐条切换并写回这里，
+  # 不需要重启。
   - id: primary_to_app_local
     upstream: qq_primary
     downstream: app_local

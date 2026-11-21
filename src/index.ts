@@ -17,9 +17,9 @@ export async function startGateway(path: string, env: NodeJS.ProcessEnv = proces
     observation.log(success ? 'info' : 'error', success ? 'policy_reload_success' : 'policy_reload_failure', { reason });
     if (observation.events.capacity) observation.events.publish({ time: new Date().toISOString(), event: 'reload', ok: success, reason });
   }, redactor(config, env));
-  const webui = new WebUI(config, () => gateway.snapshot(), observation, reloader, path, env, Date.now, restart, routeId => {
+  const webui = new WebUI(config, () => gateway.snapshot(), observation, reloader, path, env, Date.now, restart, (routeId, enabled) => {
     // 磁盘已先写入；这里只切换内存状态，连接保持不断，切回即时生效。
-    gateway.switchRoute(routeId);
+    gateway.setRouteEnabled(routeId, enabled);
     reloader.current = { ...reloader.current, routes: gateway.config.routes };
   });
   let stopping: Promise<void> | undefined;

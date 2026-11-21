@@ -221,17 +221,12 @@ async function api(path, options = {}) {
 function reload(result) { $('reload-status').textContent = result ? `${time(result.time)} · ${result.ok ? '策略加载成功' : '策略加载失败'} · ${result.reason}` : '尚无重新加载记录'; }
 function routeActionCell(route) {
   const td = document.createElement('td');
-  if (!configDraft) { td.textContent = '—'; return td; }
-  const definition = configDraft.routes.find(item => item.id === route.id);
-  if (!definition) { td.textContent = '—'; return td; }
-  // 同一个上游只有一条路由时没有可切换的对象，直接显示状态。
-  const siblings = configDraft.routes.filter(item => item.upstream === definition.upstream);
-  if (siblings.length < 2) { td.textContent = route.enabled === false ? '已停用' : '唯一路由'; return td; }
-  if (route.enabled !== false) { td.append(span('ok', '生效中')); return td; }
-  if (!allowEdit) { td.append(span('warn', '已暂停')); return td; }
-  const button = element('button', '切到这条');
-  button.type = 'button'; button.className = 'ghost route-switch';
-  addListenerIf(button, 'click', () => { void switchRoute(route.id); });
+  const receiving = route.enabled !== false;
+  if (!allowEdit || !configDraft) { td.append(span(receiving ? 'ok' : 'warn', receiving ? '接收中' : '已暂停')); return td; }
+  // 每条路由各自开关：可以同时开（消息广播给多条），也可以只留一条。
+  const button = element('button', receiving ? '停用接收' : '启用接收');
+  button.type = 'button'; button.className = receiving ? 'ghost route-switch' : 'ghost route-switch danger';
+  addListenerIf(button, 'click', () => { void toggleRoute(route.id, !receiving); });
   td.append(button); return td;
 }
 function renderRouteRows(routes) {
@@ -246,18 +241,18 @@ function renderRouteRows(routes) {
     const row = document.createElement('tr'); const cell = element('td', '暂无运行路由，请核对配置。'); cell.colSpan = 6; cell.className = 'empty'; row.append(cell); $('routes').append(row);
   }
 }
-async function switchRoute(id) {
+async function toggleRoute(id, enabled) {
   if (configBusy) return;
   if (configIsDirty() || newForms.upstream || newForms.downstream) {
     $('config-result').classList.add('failed');
-    $('config-result').textContent = '还有未保存的端点或路由改动。请先保存并重启，或撤销草稿，再切换生效路由。';
+    $('config-result').textContent = '还有未保存的端点或路由改动。请先保存并重启，或撤销草稿，再开关路由。';
     return;
   }
   configBusy = true; renderConfig();
-  $('config-result').classList.remove('failed'); $('config-result').textContent = '正在切换生效路由…';
+  $('config-result').classList.remove('failed'); $('config-result').textContent = enabled ? '正在启用接收…' : '正在暂停接收…';
   try {
-    const result = await api('/api/routes/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ route: id }) });
-    $('config-result').textContent = result.message ?? '已切换生效路由。';
+    const result = await api('/api/routes/enabled', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ route: id, enabled }) });
+    $('config-result').textContent = result.message ?? '路由开关已更新。';
     await loadConfig(generation);
   } catch (error) { $('config-result').textContent = error.message; $('config-result').classList.add('failed'); }
   finally { configBusy = false; renderConfig(); if (runtimeState) render(runtimeState); }

@@ -186,18 +186,20 @@ test('Loaded YAML status shows only editability in both editable and read-only m
   }
 });
 
-test('Route table offers a switch only when one upstream has several routes', () => {
+test('Route table gives every route its own receive toggle', () => {
   const { get, run } = panel();
   run(`configDraft = { endpoints: {}, routes: [
     { id: 'a', upstream: 'bot', downstream: 'main', policy: 'p', enabled: true },
     { id: 'b', upstream: 'bot', downstream: 'backup', policy: 'p', enabled: false }], policies: ['p'] }; allowEdit = true`);
   run(`renderRouteRows([{ id: 'a', upstream_ready: true, downstream_ready: true, ready: true, pending_requests: 0, enabled: true },
     { id: 'b', upstream_ready: true, downstream_ready: true, ready: false, pending_requests: 0, enabled: false }])`);
-  assert.deepEqual(get('routes').children.map(row => row.children[5]!.textContent), ['生效中', '切到这条']);
+  assert.deepEqual(get('routes').children.map(row => row.children[5]!.textContent), ['停用接收', '启用接收']);
   run('allowEdit = false');
   run(`renderRouteRows([{ id: 'b', upstream_ready: true, downstream_ready: true, ready: false, pending_requests: 0, enabled: false }])`);
   assert.equal(get('routes').children[0]!.children[5]!.textContent, '已暂停');
+  // 唯一一条路由也能单独关掉。
+  run('allowEdit = true');
   run(`configDraft = { endpoints: {}, routes: [{ id: 'only', upstream: 'bot', downstream: 'main', policy: 'p', enabled: true }], policies: ['p'] }`);
   run(`renderRouteRows([{ id: 'only', upstream_ready: true, downstream_ready: true, ready: true, pending_requests: 0, enabled: true }])`);
-  assert.equal(get('routes').children[0]!.children[5]!.textContent, '唯一路由');
+  assert.equal(get('routes').children[0]!.children[5]!.textContent, '停用接收');
 });

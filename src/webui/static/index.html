@@ -111,15 +111,15 @@
       </section>
 
       <section class="page" id="page-routes" aria-labelledby="routes-title">
-        <div class="phead"><div><p class="eyebrow">ROUTING / 02</p><h1 id="routes-title">消息路由</h1><p class="page-description">同一个上游可以关联多个下游，用生效开关决定消息交给哪个后端。每个下游只能绑定一条路由。</p></div><a class="text-action" href="#/rules">下一步：设置规则 →</a></div>
+        <div class="phead"><div><p class="eyebrow">ROUTING / 02</p><h1 id="routes-title">消息路由</h1><p class="page-description">同一个上游可以关联多个下游，每个下游单独开关。同时开启时消息会同时发给这些后端；只想让一个后端处理，就只开那一条。</p></div><a class="text-action" href="#/rules">下一步：设置规则 →</a></div>
         <h2 class="section-title">路由配置 <span class="hint">编辑草稿，保存并重启后生效</span></h2>
         <div id="route-editor" class="card form-block"><p class="empty">正在读取路由配置…</p></div>
         <button id="route-add" type="button" hidden>添加路由</button>
-        <h2 class="section-title">当前运行状态 <span class="hint">来自正在运行的实例，不随草稿变化；生效开关即时生效</span></h2>
+        <h2 class="section-title">当前运行状态 <span class="hint">来自正在运行的实例，不随草稿变化；接收开关即时生效</span></h2>
         <div id="route-runtime" class="card table-wrap" role="region" aria-label="路由运行状态，可横向滚动" tabindex="0">
           <table>
-            <caption class="sr-only">当前路由状态；生效开关切换消息交给哪个后端，不用重启</caption>
-            <thead><tr><th scope="col">路由</th><th scope="col">上游就绪状态</th><th scope="col">下游就绪状态</th><th scope="col">路由就绪状态</th><th scope="col">等待上游响应（个）</th><th scope="col">生效</th></tr></thead>
+            <caption class="sr-only">当前路由状态；接收开关控制这条路由是否把消息交给下游，不用重启</caption>
+            <thead><tr><th scope="col">路由</th><th scope="col">上游就绪状态</th><th scope="col">下游就绪状态</th><th scope="col">路由就绪状态</th><th scope="col">等待上游响应（个）</th><th scope="col">接收</th></tr></thead>
             <tbody id="routes"><tr><td colspan="6">正在读取路由运行状态…</td></tr></tbody>
           </table>
         </div>

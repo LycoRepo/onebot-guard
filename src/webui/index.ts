@@ -41,8 +41,8 @@ export class WebUI {
   private restart: (() => void) | undefined;
   private restartTimer: NodeJS.Timeout | undefined;
   private restartPending = false;
-  private applyRoute: ((routeId: string) => void) | undefined;
-  constructor(config: Config, snapshot: Gateway['snapshot'], observation: Observability, reloader: PolicyReloader, path: string, env: NodeJS.ProcessEnv, now = Date.now, restart?: () => void, applyRoute?: (routeId: string) => void) {
+  private applyRoute: ((routeId: string, enabled: boolean) => void) | undefined;
+  constructor(config: Config, snapshot: Gateway['snapshot'], observation: Observability, reloader: PolicyReloader, path: string, env: NodeJS.ProcessEnv, now = Date.now, restart?: () => void, applyRoute?: (routeId: string, enabled: boolean) => void) {
     this.config = config; this.snapshot = snapshot; this.observation = observation; this.reloader = reloader;
     this.policies = new PolicyFile(path, reloader); this.redact = redactor(config, env);
     this.configuration = new ConfigFile(path); this.restart = restart; this.applyRoute = applyRoute;
@@ -148,11 +148,11 @@ export class WebUI {
     res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
     res.setHeader('Referrer-Policy', 'no-referrer');
     const path = new URL(req.url ?? '/', 'http://internal').pathname;
-    const switching = req.method === 'POST' && path === '/api/routes/switch';
-    const writing = (req.method === 'PUT' && ['/api/policies', '/api/rules', '/api/config'].includes(path)) || switching;
+    const toggling = req.method === 'POST' && path === '/api/routes/enabled';
+    const writing = (req.method === 'PUT' && ['/api/policies', '/api/rules', '/api/config'].includes(path)) || toggling;
     const login = req.method === 'POST' && path === '/api/login';
     const logout = req.method === 'POST' && path === '/api/logout';
-    if (path === '/api/routes/switch' && !switching) {
+    if (path === '/api/routes/enabled' && !toggling) {
       res.setHeader('Allow', 'POST');
       this.json(res, 405, { ok: false, error: '请求方式不受支持' }); return;
     }
@@ -164,7 +164,7 @@ export class WebUI {
       this.json(res, 405, { ok: false, error: '请求方式不受支持' }); return;
     }
     const asset = assets.get(path);
-    if (!asset && !login && !logout && !['/api/state', '/api/policies', '/api/rules', '/api/logs', '/api/config', '/api/routes/switch'].includes(path)) { this.json(res, 404, { ok: false, error: '请求的页面或接口不存在' }); return; }
+    if (!asset && !login && !logout && !['/api/state', '/api/policies', '/api/rules', '/api/logs', '/api/config', '/api/routes/enabled'].includes(path)) { this.json(res, 404, { ok: false, error: '请求的页面或接口不存在' }); return; }
     const session = sessionCookie(req.headers.cookie);
     const hasSession = this.sessions.valid(session) || this.trustedProxy(req);
     const canRead = hasSession || this.readToken === undefined || authorized(req.headers.authorization, this.readToken);
@@ -231,16 +231,17 @@ export class WebUI {
       const raw = await this.body(req);
       let body: unknown;
       try { body = JSON.parse(raw); } catch { throw new PolicyError('提交内容不是有效的 JSON'); }
-      if (path === '/api/routes/switch') {
-        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || !('route' in body) || typeof body.route !== 'string') {
-          throw new PolicyError('请求体只允许一个 route 字符串字段');
+      if (path === '/api/routes/enabled') {
+        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 2 || typeof (body as { route?: unknown }).route !== 'string' || typeof (body as { enabled?: unknown }).enabled !== 'boolean') {
+          throw new PolicyError('请求体只允许 route 字符串和 enabled 布尔值');
         }
-        if (!this.applyRoute) throw new PolicyError('路由切换未启用，请手动修改配置并重启');
-        // 先写盘（失败则内存与文件都不变），再应用到当前实例：同一上游只保留这一条生效。
-        const switched = this.configuration.switchRoute(body.route);
-        this.applyRoute(body.route);
-        this.json(res, 200, { ok: true, routes: switched.map(route => ({ id: route.id, upstream: route.upstream, downstream: route.downstream, enabled: route.enabled })),
-          message: '已切换生效路由，另一个后端保持连接、暂停接收消息' });
+        if (!this.applyRoute) throw new PolicyError('路由开关未启用，请手动修改配置并重启');
+        const { route: routeId, enabled } = body as { route: string; enabled: boolean };
+        // 先写盘（失败则内存与文件都不变），再应用到当前实例。各路由互相独立，可同时启用。
+        const updated = this.configuration.setRouteEnabled(routeId, enabled);
+        this.applyRoute(routeId, enabled);
+        this.json(res, 200, { ok: true, routes: updated.map(route => ({ id: route.id, upstream: route.upstream, downstream: route.downstream, enabled: route.enabled })),
+          message: enabled ? '已开始接收消息，无需重启' : '已暂停接收消息，连接保持不断' });
         return;
       }
       if (path === '/api/config') {
