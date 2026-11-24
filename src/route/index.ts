@@ -112,7 +112,7 @@ export class Gateway {
     const upstream = this.endpoints.get(route.upstream)!.peer;
     const account = this.config.endpoints[route.upstream]!.expected_self_id!;
     let decision: Decision;
-    try { decision = checkAction(action, this.policy(route), { authenticated: peer.session.principal === this.config.endpoints[route.downstream]!.principal, accountBound: !!upstream?.active && upstream.session.account === account, readonly: this.config.endpoints[route.downstream]!.readonly === true }); }
+    try { decision = checkAction(action, this.policy(route), { authenticated: peer.session.principal === this.config.endpoints[route.downstream]!.principal, accountBound: !!upstream?.active && upstream.session.account === account, readonly: this.config.endpoints[route.downstream]!.readonly === true, selfId: account }); }
     catch { reject(deny('action.authorization.error', 'action_authorization_error')); return; }
     if (!upstream?.active || upstream.session.account !== account) { reject(deny('action.upstream', 'upstream_unavailable'), 1503); return; }
     if (!decision.allowed) { reject(decision); return; }

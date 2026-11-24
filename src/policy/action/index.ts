@@ -41,7 +41,7 @@ function checkSegments(action: Action, rule: ActionRule): Decision {
   }
   return allow('action.segment');
 }
-export function checkAction(action: Action, policy: Policy, context: { authenticated: boolean; accountBound: boolean; readonly: boolean }): Decision {
+export function checkAction(action: Action, policy: Policy, context: { authenticated: boolean; accountBound: boolean; readonly: boolean; selfId?: string }): Decision {
   if (!context.authenticated || !context.accountBound) return deny('action.identity', 'untrusted_identity');
   if (Object.keys(action).some(k => !['action', 'params', 'echo'].includes(k))) return deny('action.identity', 'unexpected_action_fields_or_account_override');
   if (policy.actions.deny.some(r => r.name === action.action)) return deny('action.name.deny', 'action_explicitly_denied');
@@ -51,8 +51,16 @@ export function checkAction(action: Action, policy: Policy, context: { authentic
   if (readActions.has(action.action)) return Object.keys(action.params).length ? deny('action.params', 'read_action_accepts_no_parameters') : allow('action.read');
   if (context.readonly) return deny('action.readonly', 'readonly_endpoint');
   const p = action.params;
-  const allowedKeys = ['message', 'auto_escape', ...(action.action === 'send_msg' ? ['message_type', 'group_id', 'user_id'] : action.action === 'send_group_msg' ? ['group_id'] : ['user_id'])];
+  const allowedKeys = ['message', 'auto_escape', 'self_id', ...(action.action === 'send_msg' ? ['message_type', 'group_id', 'user_id'] : action.action === 'send_group_msg' ? ['group_id'] : ['user_id'])];
   if (Object.keys(p).some(k => !allowedKeys.includes(k))) return deny('action.params', 'unsupported_parameter_or_identity_override');
+  // self_id is a OneBot v11 multi-account routing hint: clients such as AstrBot
+  // attach it to every call so the account can pick which bot identity speaks.
+  // Accept it only when it equals the account bound upstream on this route, so
+  // single-account clients work while real identity overrides stay denied.
+  if (p.self_id !== undefined) {
+    const claimed = id(p.self_id);
+    if (!claimed || !context.selfId || claimed !== context.selfId) return deny('action.params', 'identity_override_denied');
+  }
   let kind: 'group' | 'private';
   if (action.action === 'send_group_msg') kind = 'group';
   else if (action.action === 'send_private_msg') kind = 'private';
