@@ -23,7 +23,7 @@
 | HTML | 16,038 | 4.7% |
 | Dockerfile | 848 | 0.3% |
 
-来源：[仓库语言统计接口](https://api.github.com/repos/LycoRepo/onebot-guard/languages)。这是一次快照，后续提交会改变比例；语言字节占比也不等于运行成本或架构复杂度。
+来源：[仓库语言统计接口](https://api.github.com/repos/Phenix704/onebot-guard/languages)。这是一次快照，后续提交会改变比例；语言字节占比也不等于运行成本或架构复杂度。
 
 ## 为什么后端 TS、前端 JS
 
